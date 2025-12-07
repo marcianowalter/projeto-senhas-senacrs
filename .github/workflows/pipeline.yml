@@ -32,11 +32,11 @@ jobs:
         working-directory: terraform
 
       - name: Obter IP público da EC2
-  id: terraform_output
-  run: |
-    IP=$(terraform output -raw ec2_public_ip | tr -d '\n' | tr -d '\r')
-    echo "EC2_IP=$IP" >> $GITHUB_ENV
-  working-directory: terraform
+        id: terraform_output
+        run: |
+          IP=$(terraform output -raw ec2_public_ip | tr -d '\n' | tr -d '\r')
+          echo "EC2_IP=$IP" >> $GITHUB_ENV
+        working-directory: terraform
 
   deploy:
     runs-on: ubuntu-latest
