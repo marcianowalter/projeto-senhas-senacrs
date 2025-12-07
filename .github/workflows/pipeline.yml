@@ -6,12 +6,17 @@ on:
       - main
 
 jobs:
-  # Job 1: Provisionamento da infraestrutura com Terraform
   terraform:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout do código
         uses: actions/checkout@v3
+
+      - name: Configurar credenciais AWS
+        run: |
+          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $GITHUB_ENV
+          echo "AWS_DEFAULT_REGION=us-east-1" >> $GITHUB_ENV
 
       - name: Setup do Terraform
         uses: hashicorp/setup-terraform@v2
@@ -20,30 +25,37 @@ jobs:
 
       - name: Inicializar Terraform
         run: terraform init
+        working-directory: terraform
 
       - name: Aplicar Terraform
         run: terraform apply -auto-approve
+        working-directory: terraform
 
       - name: Obter IP público da EC2
         id: terraform_output
         run: |
           echo "EC2_IP=$(terraform output -raw ec2_public_ip)" >> $GITHUB_ENV
+        working-directory: terraform
 
-  # Job 2: Deploy da aplicação com Docker Compose
   deploy:
     runs-on: ubuntu-latest
-    needs: terraform   # Só roda depois que o Job 1 terminar com sucesso
+    needs: terraform
     steps:
       - name: Checkout do código
         uses: actions/checkout@v3
 
+      - name: Criar chave SSH para acessar EC2
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > id_rsa
+          chmod 600 id_rsa
+
       - name: Copiar código para EC2
         run: |
-          scp -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa -r ./ ec2-user@$EC2_IP:/home/ec2-user/app
+          scp -o StrictHostKeyChecking=no -i id_rsa -r ./ ec2-user@$EC2_IP:/home/ec2-user/app
 
       - name: Deploy com Docker Compose
         run: |
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa ec2-user@$EC2_IP \
+          ssh -o StrictHostKeyChecking=no -i id_rsa ec2-user@$EC2_IP \
           "cd /home/ec2-user/app && docker-compose up -d --build"
 
       - name: Mostrar URL da aplicação
@@ -51,4 +63,3 @@ jobs:
           echo "===================================================="
           echo "✅ A aplicação está disponível em: http://$EC2_IP:5000"
           echo "===================================================="
-
