@@ -13,7 +13,7 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-# Criar par de chaves para SSH
+# Criar par de chaves p/ SSH
 resource "aws_key_pair" "deployer" {
   key_name   = "deployer-key"
   public_key = file("${path.module}/mykey.pub")
