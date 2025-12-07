@@ -33,7 +33,7 @@ resource "aws_security_group" "app_sg" {
   }
 
   ingress {
-    description = "Aplicação Flask"
+    description = "Aplicacao Flask"
     from_port   = 5000
     to_port     = 5000
     protocol    = "tcp"
