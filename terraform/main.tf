@@ -13,16 +13,55 @@ data "aws_ami" "ubuntu" {
   }
 }
 
+# Criar VPC (necessário porque sua conta não tem VPC padrão)
+resource "aws_vpc" "main" {
+  cidr_block = "10.0.0.0/16"
+}
+
+# Criar Subnet pública
+resource "aws_subnet" "main_subnet" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = "us-east-1a"
+  map_public_ip_on_launch = true
+}
+
+# Internet Gateway
+resource "aws_internet_gateway" "gw" {
+  vpc_id = aws_vpc.main.id
+}
+
+# Route Table
+resource "aws_route_table" "rt" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.gw.id
+  }
+}
+
+# Associar rota à subnet
+resource "aws_route_table_association" "a" {
+  subnet_id      = aws_subnet.main_subnet.id
+  route_table_id = aws_route_table.rt.id
+}
+
 # Criar par de chaves p/ SSH
 resource "aws_key_pair" "deployer" {
   key_name   = "deployer-key"
   public_key = file("${path.module}/mykey.pub")
+
+  lifecycle {
+    ignore_changes = [public_key] # evita erro de duplicação
+  }
 }
 
 # Security Group para liberar SSH e porta da aplicação
 resource "aws_security_group" "app_sg" {
   name        = "app-security-group"
   description = "Permite SSH e porta 5000"
+  vpc_id      = aws_vpc.main.id   # ✅ necessário
 
   ingress {
     description = "SSH"
@@ -50,9 +89,10 @@ resource "aws_security_group" "app_sg" {
 
 # Criar instância EC2
 resource "aws_instance" "app_instance" {
-  ami           = data.aws_ami.ubuntu.id
-  instance_type = "t2.micro"
-  key_name      = aws_key_pair.deployer.key_name
+  ami                    = data.aws_ami.ubuntu.id
+  instance_type          = "t2.micro"
+  key_name               = aws_key_pair.deployer.key_name
+  subnet_id              = aws_subnet.main_subnet.id   # ✅ necessário
   vpc_security_group_ids = [aws_security_group.app_sg.id]
 
   tags = {
