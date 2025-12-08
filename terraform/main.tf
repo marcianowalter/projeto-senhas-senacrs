@@ -88,12 +88,7 @@ resource "aws_instance" "app_instance" {
   tags = {
     Name = "GerenciadorSenhas"
   }
-}
-
-resource "aws_instance" "app_instance" {
-  # ... suas configurações existentes ...
-  
-  user_data = <<-EOF
+ user_data = <<-EOF
               #!/bin/bash
               # Instalar Docker
               apt-get update
@@ -106,11 +101,10 @@ resource "aws_instance" "app_instance" {
               mkdir -p /home/ubuntu/app
               chown ubuntu:ubuntu /home/ubuntu/app
               EOF
-  
-  tags = {
-    Name = "app-instance"
-  }
+
 }
+
+
 
 # Output do IP público
 output "ec2_public_ip" {
