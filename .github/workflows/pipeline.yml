@@ -200,7 +200,7 @@ jobs:
           IP="$EC2_IP"
           
           ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP << 'EOF'
-            echo "📂 Acessando diretório /home/ubuntu/app..."
+            echo "Acessando diretório /home/ubuntu/app..."
             cd /home/ubuntu/app
             
             echo "📋 Conteúdo do diretório:"
