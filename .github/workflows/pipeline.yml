@@ -220,4 +220,4 @@ jobs:
           echo 'Versões instaladas:'
           docker --version
           docker-compose --version
-          
+          "         
