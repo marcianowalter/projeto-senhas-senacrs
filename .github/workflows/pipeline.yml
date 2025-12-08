@@ -61,5 +61,5 @@ jobs:
       - name: Mostrar URL da aplicação
         run: |
           echo "===================================================="
-          echo "✅ A aplicação está disponível em: http://${{ needs.terraform.outputs.ec2_ip }}:5000"
+          echo "✅ A aplicação esta disponível em: http://${{ needs.terraform.outputs.ec2_ip }}:5000"
           echo "===================================================="
