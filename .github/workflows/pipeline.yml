@@ -19,7 +19,8 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: us-east-1
-        run: echo "Credenciais AWS configuradas"
+        run: | 
+          echo "Credenciais AWS configuradas"
 
       - name: Setup do Terraform
         uses: hashicorp/setup-terraform@v2
