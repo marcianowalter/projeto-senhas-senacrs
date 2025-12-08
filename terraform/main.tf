@@ -91,8 +91,8 @@ resource "aws_security_group" "app_sg" {
 resource "aws_instance" "app_instance" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = "t2.micro"
-  key_name               = aws_key_pair.deployer.key_name
-  subnet_id              = aws_subnet.main_subnet.id   # ✅ necessário
+  key_name               = "minha-chave"
+  subnet_id              = aws_subnet.main_subnet.id   # ✅ necessario
   vpc_security_group_ids = [aws_security_group.app_sg.id]
 
   tags = {
