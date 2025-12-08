@@ -24,7 +24,7 @@ jobs:
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.5.7
-          terraform_wrapper: false  # 🔴 IMPORTANTE: Adicione esta linha!
+          terraform_wrapper: false  #  IMPORTANTE: Adicione esta linha!
 
       - name: Inicializar Terraform
         run: terraform init
@@ -52,7 +52,7 @@ jobs:
           
           # Se ainda não conseguir, tentar método alternativo
           if [ -z "$IP" ] || [ "$IP" = "null" ]; then
-            echo "⚠️  Método JSON falhou, tentando método raw..."
+            echo " Método JSON falhou, tentando método raw..."
             RAW=$(terraform output -raw ec2_public_ip)
             echo "Raw output: '$RAW'"
             
@@ -64,21 +64,21 @@ jobs:
             fi
           fi
           
-          echo "✅ IP extraído: '$IP'"
+          echo "IP extraído: '$IP'"
           
           # Validar formato do IP
           if [[ ! $IP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-            echo "❌ ERRO: IP inválido extraído: $IP"
+            echo "ERRO: IP inválido extraído: $IP"
             exit 1
           fi
           
           echo "ec2_ip=$IP" >> $GITHUB_OUTPUT
-          echo "🎯 IP salvo no output: $IP"
+          echo "IP salvo no output: $IP"
         working-directory: terraform
 
       - name: Debug do output
         run: |
-          echo "📤 Outputs disponíveis:"
+          echo "Outputs disponíveis:"
           echo "ec2_ip: ${{ steps.terraform_output.outputs.ec2_ip }}"
           echo "GITHUB_OUTPUT:"
           cat $GITHUB_OUTPUT || true
@@ -95,12 +95,12 @@ jobs:
 
       - name: Exibir IP recebido do Terraform
         run: |
-          echo "🔍 Verificando IP recebido..."
+          echo "Verificando IP recebido..."
           echo "IP do needs: ${{ needs.terraform.outputs.ec2_ip }}"
           echo "Variável EC2_IP: $EC2_IP"
           
           if [ -z "$EC2_IP" ]; then
-            echo "❌ ERRO: EC2_IP está vazio!"
+            echo "ERRO: EC2_IP está vazio!"
             echo "Debug dos outputs:"
             echo "needs.terraform.outputs:"
             echo "${{ toJSON(needs.terraform.outputs) }}"
@@ -108,15 +108,15 @@ jobs:
           fi
           
           if [[ ! $EC2_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "❌ ERRO: Formato de IP inválido: $EC2_IP"
+            echo "ERRO: Formato de IP inválido: $EC2_IP"
             exit 1
           fi
           
-          echo "✅ IP válido recebido: $EC2_IP"
+          echo "IP válido recebido: $EC2_IP"
 
       - name: Criar chave SSH para acessar EC2
         run: |
-          echo "🔑 Criando chave SSH..."
+          echo "Criando chave SSH..."
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > id_rsa
           chmod 600 id_rsa
           
@@ -132,10 +132,10 @@ jobs:
           IP="$EC2_IP"
           
           # Aguardar instância ficar pronta
-          echo "⏳ Aguardando instância ficar disponível..."
+          echo "Aguardando instância ficar disponível..."
           for i in {1..30}; do
             if timeout 5 nc -z $IP 22 2>/dev/null; then
-              echo "✅ Porta 22 está aberta"
+              echo "Porta 22 está aberta"
               break
             else
               echo "Tentativa $i/30: SSH ainda não disponível..."
@@ -145,8 +145,8 @@ jobs:
           
           # Testar conexão SSH
           echo "Testando autenticação SSH..."
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i id_rsa ubuntu@$IP "echo '✅ Conexão SSH bem sucedida!'" || {
-            echo "❌ Falha na conexão SSH"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i id_rsa ubuntu@$IP "echo 'Conexão SSH bem sucedida!'" || {
+            echo "Falha na conexão SSH"
             echo "Verifique:"
             echo "1. Se a chave SSH está correta"
             echo "2. Se o security group permite SSH (porta 22)"
@@ -156,7 +156,7 @@ jobs:
 
       - name: Copiar código para EC2
         run: |
-          echo "📤 Copiando arquivos para EC2..."
+          echo "Copiando arquivos para EC2..."
           IP="$EC2_IP"
           
           # Listar arquivos que serão copiados
@@ -166,31 +166,31 @@ jobs:
           # Copiar com verbose
           scp -v -o StrictHostKeyChecking=no -i id_rsa -r ./ ubuntu@$IP:/home/ubuntu/app
           
-          echo "✅ Cópia concluída!"
+          echo "Cópia concluída!"
 
       - name: Deploy com Docker Compose
         run: |
-          echo "🚀 Executando deploy..."
+          echo "Executando deploy..."
           IP="$EC2_IP"
           
           ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP "
-            echo '📂 Acessando diretório /home/ubuntu/app...'
+            echo 'Acessando diretório /home/ubuntu/app...'
             cd /home/ubuntu/app
             
-            echo '📋 Conteúdo do diretório:'
+            echo 'Conteúdo do diretório:'
             ls -la
             
-            echo '🐳 Verificando Docker...'
+            echo 'Verificando Docker...'
             docker --version
             docker-compose --version
             
-            echo '🔨 Construindo e iniciando containers...'
+            echo 'Construindo e iniciando containers...'
             sudo docker-compose up -d --build
             
-            echo '📊 Status dos containers:'
+            echo 'Status dos containers:'
             sudo docker-compose ps
             
-            echo '📝 Logs da aplicação:'
+            echo 'Logs da aplicação:'
             sudo docker-compose logs --tail=10
           "
 
@@ -199,9 +199,9 @@ jobs:
           echo "===================================================="
           echo "✅ DEPLOY CONCLUÍDO COM SUCESSO!"
           echo ""
-          echo "🌐 A aplicação está disponível em:"
+          echo "A aplicação está disponível em:"
           echo "   http://$EC2_IP:5000"
           echo ""
-          echo "🔍 Para verificar os logs:"
+          echo "Para verificar os logs:"
           echo "   ssh -i id_rsa ubuntu@$EC2_IP 'cd /home/ubuntu/app && docker-compose logs'"
           echo "===================================================="
