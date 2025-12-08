@@ -13,7 +13,7 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-# Criar VPC (necessário porque sua conta não tem VPC padrão)
+# Criar VPC
 resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
 }
@@ -47,11 +47,11 @@ resource "aws_route_table_association" "a" {
   route_table_id = aws_route_table.rt.id
 }
 
-# Security Group para liberar SSH e porta da aplicação
+# Security Group para liberar SSH e porta 5000
 resource "aws_security_group" "app_sg" {
   name        = "app-security-group"
   description = "Permite SSH e porta 5000"
-  vpc_id      = aws_vpc.main.id   # ✅ necessario
+  vpc_id      = aws_vpc.main.id
 
   ingress {
     description = "SSH"
@@ -62,7 +62,7 @@ resource "aws_security_group" "app_sg" {
   }
 
   ingress {
-    description = "Aplicacao Flask"
+    description = "Aplicação Flask"
     from_port   = 5000
     to_port     = 5000
     protocol    = "tcp"
@@ -82,13 +82,15 @@ resource "aws_instance" "app_instance" {
   ami                    = data.aws_ami.ubuntu.id
   instance_type          = "t2.micro"
   key_name               = "minha-chave"
-  subnet_id              = aws_subnet.main_subnet.id   # ✅ necessario
+  subnet_id              = aws_subnet.main_subnet.id
   vpc_security_group_ids = [aws_security_group.app_sg.id]
 
   tags = {
     Name = "GerenciadorSenhas"
   }
-user_data = <<-EOF
+
+  # Instalar Docker e Docker Compose automaticamente
+  user_data = <<-EOF
 #!/bin/bash
 apt-get update -y
 apt-get install -y ca-certificates curl gnupg lsb-release
@@ -104,10 +106,7 @@ chmod +x /usr/local/bin/docker-compose
 # Permitir docker sem sudo
 usermod -aG docker ubuntu
 EOF
-
 }
-
-
 
 # Output do IP público
 output "ec2_public_ip" {
