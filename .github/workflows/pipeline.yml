@@ -52,7 +52,7 @@ jobs:
           
           # Se ainda não conseguir, tentar método alternativo
           if [ -z "$IP" ] || [ "$IP" = "null" ]; then
-            echo " Método JSON falhou, tentando método raw..."
+            echo "⚠️ Método JSON falhou, tentando método raw..."
             RAW=$(terraform output -raw ec2_public_ip)
             echo "Raw output: '$RAW'"
             
@@ -64,21 +64,21 @@ jobs:
             fi
           fi
           
-          echo "IP extraído: '$IP'"
+          echo "✅ IP extraído: '$IP'"
           
           # Validar formato do IP
           if [[ ! $IP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-            echo "ERRO: IP inválido extraído: $IP"
+            echo "❌ ERRO: IP inválido extraído: $IP"
             exit 1
           fi
           
           echo "ec2_ip=$IP" >> $GITHUB_OUTPUT
-          echo "IP salvo no output: $IP"
+          echo "🎯 IP salvo no output: $IP"
         working-directory: terraform
 
       - name: Debug do output
         run: |
-          echo "Outputs disponíveis:"
+          echo "📤 Outputs disponíveis:"
           echo "ec2_ip: ${{ steps.terraform_output.outputs.ec2_ip }}"
           echo "GITHUB_OUTPUT:"
           cat $GITHUB_OUTPUT || true
@@ -95,12 +95,12 @@ jobs:
 
       - name: Exibir IP recebido do Terraform
         run: |
-          echo "Verificando IP recebido..."
+          echo "🔍 Verificando IP recebido..."
           echo "IP do needs: ${{ needs.terraform.outputs.ec2_ip }}"
           echo "Variável EC2_IP: $EC2_IP"
           
           if [ -z "$EC2_IP" ]; then
-            echo "ERRO: EC2_IP está vazio!"
+            echo "❌ ERRO: EC2_IP está vazio!"
             echo "Debug dos outputs:"
             echo "needs.terraform.outputs:"
             echo "${{ toJSON(needs.terraform.outputs) }}"
@@ -108,22 +108,22 @@ jobs:
           fi
           
           if [[ ! $EC2_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "ERRO: Formato de IP inválido: $EC2_IP"
+            echo "❌ ERRO: Formato de IP inválido: $EC2_IP"
             exit 1
           fi
           
-          echo "IP válido recebido: $EC2_IP"
+          echo "✅ IP válido recebido: $EC2_IP"
 
       - name: Criar chave SSH para acessar EC2
         run: |
-          echo "Criando chave SSH..."
+          echo "🔑 Criando chave SSH..."
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > id_rsa
           chmod 600 id_rsa
           
           # Verificar se a chave foi criada
-          echo "Verificando chave:"
+          echo "📄 Verificando chave:"
           ls -la id_rsa
-          echo "Primeiras linhas:"
+          echo "📝 Primeiras linhas:"
           head -2 id_rsa
 
       - name: Testar conexão SSH
@@ -132,10 +132,10 @@ jobs:
           IP="$EC2_IP"
           
           # Aguardar instância ficar pronta
-          echo "Aguardando instância ficar disponível..."
+          echo "⏳ Aguardando instância ficar disponível..."
           for i in {1..30}; do
             if timeout 5 nc -z $IP 22 2>/dev/null; then
-              echo "Porta 22 está aberta"
+              echo "✅ Porta 22 está aberta"
               break
             else
               echo "Tentativa $i/30: SSH ainda não disponível..."
@@ -144,19 +144,68 @@ jobs:
           done
           
           # Testar conexão SSH
-          echo "Testando autenticação SSH..."
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i id_rsa ubuntu@$IP "echo 'Conexão SSH bem sucedida!'" || {
-            echo "Falha na conexão SSH"
-            echo "Verifique:"
+          echo "🔑 Testando autenticação SSH..."
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i id_rsa ubuntu@$IP "echo '✅ Conexão SSH bem sucedida!'" || {
+            echo "❌ Falha na conexão SSH"
+            echo "🔍 Verifique:"
             echo "1. Se a chave SSH está correta"
             echo "2. Se o security group permite SSH (porta 22)"
             echo "3. Se o usuário é 'ubuntu'"
             exit 1
           }
 
+      # 🔥🔥🔥 PASSO CRÍTICO: INSTALAR DOCKER ANTES DO DEPLOY 🔥🔥🔥
+      - name: Instalar Docker e Docker Compose na EC2
+        run: |
+          echo "🐳 INSTALANDO DOCKER NA EC2..."
+          IP="$EC2_IP"
+          
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP << 'EOF'
+            echo "📦 Atualizando pacotes..."
+            sudo apt-get update -y
+            
+            echo "🔧 Instalando Docker..."
+            curl -fsSL https://get.docker.com | sudo bash
+            
+            echo "🔧 Instalando Docker Compose..."
+            sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
+              -o /usr/local/bin/docker-compose
+            sudo chmod +x /usr/local/bin/docker-compose
+            
+            echo "👥 Configurando permissões..."
+            sudo usermod -aG docker ubuntu
+            
+            echo "🚀 Iniciando Docker..."
+            sudo systemctl start docker
+            sudo systemctl enable docker
+            
+            echo "✅ Verificando instalações..."
+            sudo docker --version
+            sudo docker-compose --version
+            
+            echo "🧪 Testando Docker..."
+            sudo docker run --rm hello-world
+          EOF
+
+      - name: Verificar instalação do Docker
+        run: |
+          echo "🔍 Verificando Docker instalado..."
+          IP="$EC2_IP"
+          
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP "
+            echo '🐳 Docker version:'
+            docker --version 2>/dev/null || sudo docker --version
+            
+            echo '📦 Docker Compose version:'
+            docker-compose --version 2>/dev/null || sudo docker-compose --version || /usr/local/bin/docker-compose --version
+            
+            echo '👤 Usuário no grupo docker:'
+            groups ubuntu | grep docker && echo '✅ Usuário no grupo docker' || echo '⚠️ Usuário não está no grupo docker'
+          "
+
       - name: Copiar código para EC2
         run: |
-          echo "Copiando arquivos para EC2..."
+          echo "📤 Copiando arquivos para EC2..."
           IP="$EC2_IP"
 
           rsync -avz \
@@ -173,54 +222,47 @@ jobs:
 
       - name: Deploy com Docker Compose
         run: |
-          echo "Executando deploy..."
+          echo "🚀 Executando deploy..."
           IP="$EC2_IP"
           
-          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP "
-            echo 'Acessando diretório /home/ubuntu/app...'
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP << 'EOF'
+            echo "📂 Acessando diretório /home/ubuntu/app..."
             cd /home/ubuntu/app
             
-            echo 'Conteúdo do diretório:'
+            echo "📋 Conteúdo do diretório:"
             ls -la
             
-            echo 'Verificando Docker...'
-            docker --version
-            docker-compose --version
+            echo "🐳 Verificando Docker..."
+            docker --version 2>/dev/null || sudo docker --version
+            docker-compose --version 2>/dev/null || sudo docker-compose --version
             
-            echo 'Construindo e iniciando containers...'
+            echo "🔨 Parando containers existentes (se houver)..."
+            sudo docker-compose down 2>/dev/null || true
+            
+            echo "🏗️ Construindo e iniciando containers..."
             sudo docker-compose up -d --build
             
-            echo 'Status dos containers:'
+            echo "⏳ Aguardando containers iniciarem..."
+            sleep 15
+            
+            echo "📊 Status dos containers:"
             sudo docker-compose ps
             
-            echo 'Logs da aplicação:'
-            sudo docker-compose logs --tail=10
-          "
+            echo "📝 Logs da aplicação:"
+            sudo docker-compose logs --tail=30
+            
+            echo "🌐 Testando aplicação..."
+            curl -f http://localhost:5000 && echo "✅ Aplicação respondendo!" || echo "⚠️ Aplicação ainda não está respondendo"
+          EOF
 
       - name: Mostrar URL da aplicação
         run: |
           echo "===================================================="
-          echo "DEPLOY CONCLUÍDO COM SUCESSO!"
+          echo "✅ DEPLOY CONCLUÍDO COM SUCESSO!"
           echo ""
-          echo "A aplicação está disponível em:"
+          echo "🌐 A aplicação está disponível em:"
           echo "   http://$EC2_IP:5000"
           echo ""
-          echo "Para verificar os logs:"
-          echo "   ssh -i id_rsa ubuntu@$EC2_IP 'cd /home/ubuntu/app && docker-compose logs'"
+          echo "🔍 Para verificar os logs:"
+          echo "   ssh -i id_rsa ubuntu@$EC2_IP 'cd /home/ubuntu/app && sudo docker-compose logs -f'"
           echo "===================================================="
-      - name: Instalar Docker e Docker Compose na EC2
-        run: |
-          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP "
-          echo 'Instalando Docker...'
-          sudo apt-get update -y
-          curl -fsSL https://get.docker.com | sudo bash
-
-          echo 'Instalando Docker Compose...'
-          sudo curl -L 'https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)' \
-            -o /usr/local/bin/docker-compose
-          sudo chmod +x /usr/local/bin/docker-compose
-
-          echo 'Versões instaladas:'
-          docker --version
-          docker-compose --version
-          "         
