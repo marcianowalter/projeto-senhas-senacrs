@@ -1,87 +1,4 @@
-name: CI/CD Pipeline
-
-on:
-  push:
-    branches:
-      - main
-
-jobs:
-  terraform:
-    runs-on: ubuntu-latest
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: us-east-1
-    
-    outputs:
-      ec2_ip: ${{ steps.terraform_output.outputs.ec2_ip }}
-
-    steps:
-      - name: Checkout do código
-        uses: actions/checkout@v3
-
-      - name: Setup do Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.5.7
-          terraform_wrapper: false  # 🔴 IMPORTANTE: Adicione esta linha!
-
-      - name: Inicializar Terraform
-        run: terraform init
-        working-directory: terraform
-
-      - name: Aplicar Terraform
-        run: terraform apply -auto-approve
-        working-directory: terraform
-      
-      - name: Instalar jq
-        run: sudo apt-get install -y jq
-
-      - name: Capturar IP público da EC2
-        id: terraform_output
-        run: |
-          echo "🔍 Obtendo output do Terraform..."
-          
-          # Método 1: Usar JSON (mais confiável)
-          terraform output -json > tf_output.json
-          echo "Conteúdo do JSON:"
-          cat tf_output.json
-          
-          # Extrair IP do JSON
-          IP=$(jq -r '.ec2_public_ip.value' tf_output.json)
-          
-          # Se ainda não conseguir, tentar método alternativo
-          if [ -z "$IP" ] || [ "$IP" = "null" ]; then
-            echo "⚠️  Método JSON falhou, tentando método raw..."
-            RAW=$(terraform output -raw ec2_public_ip)
-            echo "Raw output: '$RAW'"
-            
-            # Extrair IP usando múltiplos métodos
-            if [[ $RAW =~ ([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}) ]]; then
-              IP="${BASH_REMATCH[1]}"
-            else
-              IP=$(echo "$RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-            fi
-          fi
-          
-          echo "✅ IP extraído: '$IP'"
-          
-          # Validar formato do IP
-          if [[ ! $IP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-            echo "❌ ERRO: IP inválido extraído: $IP"
-            exit 1
-          fi
-          
-          echo "ec2_ip=$IP" >> $GITHUB_OUTPUT
-          echo "🎯 IP salvo no output: $IP"
-        working-directory: terraform
-
-      - name: Debug do output
-        run: |
-          echo "📤 Outputs disponíveis:"
-          echo "ec2_ip: ${{ steps.terraform_output.outputs.ec2_ip }}"
-          echo "GITHUB_OUTPUT:"
-          cat $GITHUB_OUTPUT || true
+# ... (mantenha os jobs terraform iguais) ...
 
   deploy:
     runs-on: ubuntu-latest
@@ -93,115 +10,39 @@ jobs:
       - name: Checkout do código
         uses: actions/checkout@v3
 
-      - name: Exibir IP recebido do Terraform
+      - name: Criar chave SSH
         run: |
-          echo "🔍 Verificando IP recebido..."
-          echo "IP do needs: ${{ needs.terraform.outputs.ec2_ip }}"
-          echo "Variável EC2_IP: $EC2_IP"
-          
-          if [ -z "$EC2_IP" ]; then
-            echo "❌ ERRO: EC2_IP está vazio!"
-            echo "Debug dos outputs:"
-            echo "needs.terraform.outputs:"
-            echo "${{ toJSON(needs.terraform.outputs) }}"
-            exit 1
-          fi
-          
-          if [[ ! $EC2_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "❌ ERRO: Formato de IP inválido: $EC2_IP"
-            exit 1
-          fi
-          
-          echo "✅ IP válido recebido: $EC2_IP"
-
-      - name: Criar chave SSH para acessar EC2
-        run: |
-          echo "🔑 Criando chave SSH..."
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > id_rsa
           chmod 600 id_rsa
-          
-          # Verificar se a chave foi criada
-          echo "Verificando chave:"
-          ls -la id_rsa
-          echo "Primeiras linhas:"
-          head -2 id_rsa
 
-      - name: Testar conexão SSH
+      - name: Instalar Docker na EC2 (script rápido)
         run: |
-          echo "🔌 Testando conexão com a EC2..."
-          IP="$EC2_IP"
-          
-          # Aguardar instância ficar pronta
-          echo "⏳ Aguardando instância ficar disponível..."
-          for i in {1..30}; do
-            if timeout 5 nc -z $IP 22 2>/dev/null; then
-              echo "✅ Porta 22 está aberta"
-              break
-            else
-              echo "Tentativa $i/30: SSH ainda não disponível..."
-              sleep 5
-            fi
-          done
-          
-          # Testar conexão SSH
-          echo "Testando autenticação SSH..."
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i id_rsa ubuntu@$IP "echo '✅ Conexão SSH bem sucedida!'" || {
-            echo "❌ Falha na conexão SSH"
-            echo "Verifique:"
-            echo "1. Se a chave SSH está correta"
-            echo "2. Se o security group permite SSH (porta 22)"
-            echo "3. Se o usuário é 'ubuntu'"
-            exit 1
-          }
-
-      - name: Copiar código para EC2
-        run: |
-          echo "📤 Copiando arquivos para EC2..."
-          IP="$EC2_IP"
-          
-          # Listar arquivos que serão copiados
-          echo "Arquivos locais:"
-          ls -la
-          
-          # Copiar com verbose
-          scp -v -o StrictHostKeyChecking=no -i id_rsa -r ./ ubuntu@$IP:/home/ubuntu/app
-          
-          echo "✅ Cópia concluída!"
-
-      - name: Deploy com Docker Compose
-        run: |
-          echo "🚀 Executando deploy..."
-          IP="$EC2_IP"
-          
-          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP "
-            echo '📂 Acessando diretório /home/ubuntu/app...'
-            cd /home/ubuntu/app
-            
-            echo '📋 Conteúdo do diretório:'
-            ls -la
-            
-            echo '🐳 Verificando Docker...'
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP "
+            # Script rápido de instalação do Docker
+            sudo apt-get update
+            sudo apt-get install -y docker.io docker-compose
+            sudo usermod -aG docker ubuntu
+            sudo systemctl start docker
+            sudo systemctl enable docker
+            echo 'Docker e Docker Compose instalados'
             docker --version
             docker-compose --version
-            
-            echo '🔨 Construindo e iniciando containers...'
-            sudo docker-compose up -d --build
-            
-            echo '📊 Status dos containers:'
-            sudo docker-compose ps
-            
-            echo '📝 Logs da aplicação:'
-            sudo docker-compose logs --tail=10
           "
 
-      - name: Mostrar URL da aplicação
+      - name: Copiar aplicação
         run: |
-          echo "===================================================="
-          echo "✅ DEPLOY CONCLUÍDO COM SUCESSO!"
-          echo ""
-          echo "🌐 A aplicação está disponível em:"
-          echo "   http://$EC2_IP:5000"
-          echo ""
-          echo "🔍 Para verificar os logs:"
-          echo "   ssh -i id_rsa ubuntu@$EC2_IP 'cd /home/ubuntu/app && docker-compose logs'"
-          echo "===================================================="
+          scp -o StrictHostKeyChecking=no -i id_rsa -r ./ ubuntu@$EC2_IP:/home/ubuntu/app
+
+      - name: Executar Docker Compose
+        run: |
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP "
+            cd /home/ubuntu/app
+            sudo docker-compose up -d --build
+            sleep 5
+            sudo docker-compose ps
+            echo 'Aplicação disponível em: http://localhost:5000'
+          "
+
+      - name: Mostrar URL
+        run: |
+          echo "Aplicação disponível em: http://$EC2_IP:5000"
