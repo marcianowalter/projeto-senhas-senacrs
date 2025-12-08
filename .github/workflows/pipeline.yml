@@ -14,6 +14,7 @@ jobs:
       AWS_DEFAULT_REGION: us-east-1
     outputs:
       ec2_ip: ${{ steps.terraform_output.outputs.ec2_ip }}
+
     steps:
       - name: Checkout do código
         uses: actions/checkout@v3
@@ -41,6 +42,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: terraform
+    env:
+      EC2_IP: ${{ needs.terraform.outputs.ec2_ip }}
+
     steps:
       - name: Checkout do código
         uses: actions/checkout@v3
@@ -50,17 +54,20 @@ jobs:
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > id_rsa
           chmod 600 id_rsa
 
+      - name: Verificar IP recebido
+        run: echo "IP recebido: $EC2_IP"
+
       - name: Copiar código para EC2
         run: |
-          scp -o StrictHostKeyChecking=no -i id_rsa -r ./ ubuntu@${{ needs.terraform.outputs.ec2_ip }}:/home/ubuntu/app
+          scp -o StrictHostKeyChecking=no -i id_rsa -r ./ ubuntu@$EC2_IP:/home/ubuntu/app
 
       - name: Deploy com Docker Compose
         run: |
-          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@${{ needs.terraform.outputs.ec2_ip }} \
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP \
           "cd /home/ubuntu/app && docker-compose up -d --build"
 
       - name: Mostrar URL da aplicação
         run: |
           echo "===================================================="
-          echo "✅ A aplicação está disponível em: http://${{ needs.terraform.outputs.ec2_ip }}:5000"
+          echo "✅ A aplicação está disponível em: http://$EC2_IP:5000"
           echo "===================================================="
