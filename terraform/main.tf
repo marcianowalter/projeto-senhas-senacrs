@@ -88,19 +88,22 @@ resource "aws_instance" "app_instance" {
   tags = {
     Name = "GerenciadorSenhas"
   }
- user_data = <<-EOF
-              #!/bin/bash
-              # Instalar Docker
-              apt-get update
-              apt-get install -y docker.io docker-compose
-              usermod -aG docker ubuntu
-              systemctl start docker
-              systemctl enable docker
-              
-              # Criar diretório da aplicação
-              mkdir -p /home/ubuntu/app
-              chown ubuntu:ubuntu /home/ubuntu/app
-              EOF
+user_data = <<-EOF
+#!/bin/bash
+apt-get update -y
+apt-get install -y ca-certificates curl gnupg lsb-release
+
+# Instalar Docker
+curl -fsSL https://get.docker.com | bash
+
+# Instalar Docker Compose
+curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" \
+  -o /usr/local/bin/docker-compose
+chmod +x /usr/local/bin/docker-compose
+
+# Permitir docker sem sudo
+usermod -aG docker ubuntu
+EOF
 
 }
 
