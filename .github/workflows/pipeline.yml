@@ -37,12 +37,13 @@ jobs:
 
 
       - name: Capturar IP público da EC2
-  id: terraform_output
-  run: |
-    RAW=$(terraform output ec2_public_ip)
-    IP=$(echo "$RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
-    echo "ec2_ip=$IP" >> $GITHUB_OUTPUT
-  working-directory: terraform
+        id: terraform_output
+        run: |
+          RAW=$(terraform output ec2_public_ip)
+          IP=$(echo "$RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
+          echo "ec2_ip=$IP" >> $GITHUB_OUTPUT
+        working-directory: terraform
+
 
 
 
