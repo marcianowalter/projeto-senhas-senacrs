@@ -47,21 +47,11 @@ resource "aws_route_table_association" "a" {
   route_table_id = aws_route_table.rt.id
 }
 
-# Criar par de chaves p/ SSH
-resource "aws_key_pair" "deployer" {
-  key_name   = "deployer-key"
-  public_key = file("${path.module}/mykey.pub")
-
-  lifecycle {
-    ignore_changes = [public_key] # evita erro de duplicação
-  }
-}
-
 # Security Group para liberar SSH e porta da aplicação
 resource "aws_security_group" "app_sg" {
   name        = "app-security-group"
   description = "Permite SSH e porta 5000"
-  vpc_id      = aws_vpc.main.id   # ✅ necessário
+  vpc_id      = aws_vpc.main.id   # ✅ necessario
 
   ingress {
     description = "SSH"
