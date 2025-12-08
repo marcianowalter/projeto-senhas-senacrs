@@ -158,15 +158,18 @@ jobs:
         run: |
           echo "Copiando arquivos para EC2..."
           IP="$EC2_IP"
-          
-          # Listar arquivos que serão copiados
-          echo "Arquivos locais:"
-          ls -la
-          
-          # Copiar com verbose
-          scp -v -o StrictHostKeyChecking=no -i id_rsa -r ./ ubuntu@$IP:/home/ubuntu/app
-          
-          echo "Cópia concluída!"
+
+          rsync -avz \
+          --exclude='.git' \
+          --exclude='.github' \
+          --exclude='terraform' \
+          --exclude='*.pem' \
+          --exclude='id_rsa' \
+          --exclude='minha-chave' \
+          --exclude='mykey' \
+          --exclude='*.pub' \
+          -e "ssh -o StrictHostKeyChecking=no -i id_rsa" \
+          ./ ubuntu@$IP:/home/ubuntu/app
 
       - name: Deploy com Docker Compose
         run: |
