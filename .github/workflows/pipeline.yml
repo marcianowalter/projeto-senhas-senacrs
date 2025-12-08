@@ -12,8 +12,6 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: us-east-1
-    outputs:
-      ec2_ip: ${{ steps.terraform_output.outputs.ec2_ip }}
     steps:
       - name: Checkout do código
         uses: actions/checkout@v3
@@ -31,10 +29,12 @@ jobs:
         run: terraform apply -auto-approve
         working-directory: terraform
 
-      - name: Obter IP público da EC2
-        id: terraform_output
+      - name: Mostrar IP público da EC2
         run: |
-          echo "ec2_ip=$(terraform output -raw ec2_public_ip)" >> $GITHUB_OUTPUT
+          echo "=============================================="
+          echo "✅ IP público da EC2:"
+          terraform output ec2_public_ip
+          echo "=============================================="
         working-directory: terraform
 
   deploy:
@@ -51,15 +51,21 @@ jobs:
 
       - name: Copiar código para EC2
         run: |
-          scp -o StrictHostKeyChecking=no -i id_rsa -r ./ ec2-user@${{ needs.terraform.outputs.ec2_ip }}:/home/ec2-user/app
+          echo "⚠️  ATENÇÃO: Você precisa copiar o IP manualmente do log acima!"
+          echo "⚠️  Substitua AQUI o IP da EC2 antes de rodar o deploy."
+          # Exemplo:
+          # scp -o StrictHostKeyChecking=no -i id_rsa -r ./ ec2-user@107.23.77.95:/home/ec2-user/app
+          exit 1  # impede deploy automático até você colocar o IP
 
       - name: Deploy com Docker Compose
         run: |
-          ssh -o StrictHostKeyChecking=no -i id_rsa ec2-user@${{ needs.terraform.outputs.ec2_ip }} \
-          "cd /home/ec2-user/app && docker-compose up -d --build"
+          echo "⚠️  Mesmo aviso: coloque o IP manualmente aqui também."
+          # ssh -o StrictHostKeyChecking=no -i id_rsa ec2-user@107.23.77.95 \
+          # "cd /home/ec2-user/app && docker-compose up -d --build"
+          exit 1
 
       - name: Mostrar URL da aplicação
         run: |
-          echo "===================================================="
-          echo "✅ A aplicação esta disponível em: http://${{ needs.terraform.outputs.ec2_ip }}:5000"
-          echo "===================================================="
+          echo "⚠️  Coloque o IP manualmente aqui também."
+          # echo "✅ A aplicação está disponível em: http://107.23.77.95:5000"
+          exit 1
