@@ -31,13 +31,18 @@ jobs:
       - name: Aplicar Terraform
         run: terraform apply -auto-approve
         working-directory: terraform
+      
+      - name: Instalar jq
+        run: sudo apt-get install -y jq
+
 
       - name: Capturar IP público da EC2
         id: terraform_output
         run: |
-          IP=$(terraform output -raw ec2_public_ip | tr -d '\n' | tr -d '\r')
+          IP=$(terraform output -json | jq -r '.ec2_public_ip.value')
           echo "ec2_ip=$IP" >> $GITHUB_OUTPUT
         working-directory: terraform
+
 
   deploy:
     runs-on: ubuntu-latest
