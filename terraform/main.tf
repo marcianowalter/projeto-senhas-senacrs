@@ -90,6 +90,28 @@ resource "aws_instance" "app_instance" {
   }
 }
 
+resource "aws_instance" "app_instance" {
+  # ... suas configurações existentes ...
+  
+  user_data = <<-EOF
+              #!/bin/bash
+              # Instalar Docker
+              apt-get update
+              apt-get install -y docker.io docker-compose
+              usermod -aG docker ubuntu
+              systemctl start docker
+              systemctl enable docker
+              
+              # Criar diretório da aplicação
+              mkdir -p /home/ubuntu/app
+              chown ubuntu:ubuntu /home/ubuntu/app
+              EOF
+  
+  tags = {
+    Name = "app-instance"
+  }
+}
+
 # Output do IP público
 output "ec2_public_ip" {
   value = aws_instance.app_instance.public_ip
