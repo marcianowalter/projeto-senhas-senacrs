@@ -55,7 +55,7 @@ jobs:
           chmod 600 id_rsa
 
       - name: Verificar IP recebido
-        run: echo "IP recebido: $EC2_IP"
+        run: echo "IP recebido $EC2_IP"
 
       - name: Copiar código para EC2
         run: |
