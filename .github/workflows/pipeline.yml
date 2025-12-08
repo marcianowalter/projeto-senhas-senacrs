@@ -203,7 +203,7 @@ jobs:
             echo "📂 Acessando diretório /home/ubuntu/app..."
             cd /home/ubuntu/app
             
-            echo "📋 Conteúdo do diretório:"
+            echo "Conteúdo do diretório:"
             ls -la
             
             echo "🐳 Verificando Docker..."
