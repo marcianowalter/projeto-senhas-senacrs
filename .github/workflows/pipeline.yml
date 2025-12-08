@@ -24,7 +24,7 @@ jobs:
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.5.7
-          terraform_wrapper: false
+          terraform_wrapper: false  # 🔴 IMPORTANTE: Adicione esta linha!
 
       - name: Inicializar Terraform
         run: terraform init
@@ -33,14 +33,55 @@ jobs:
       - name: Aplicar Terraform
         run: terraform apply -auto-approve
         working-directory: terraform
+      
+      - name: Instalar jq
+        run: sudo apt-get install -y jq
 
       - name: Capturar IP público da EC2
         id: terraform_output
         run: |
+          echo "🔍 Obtendo output do Terraform..."
+          
+          # Método 1: Usar JSON (mais confiável)
           terraform output -json > tf_output.json
+          echo "Conteúdo do JSON:"
+          cat tf_output.json
+          
+          # Extrair IP do JSON
           IP=$(jq -r '.ec2_public_ip.value' tf_output.json)
+          
+          # Se ainda não conseguir, tentar método alternativo
+          if [ -z "$IP" ] || [ "$IP" = "null" ]; then
+            echo "⚠️  Método JSON falhou, tentando método raw..."
+            RAW=$(terraform output -raw ec2_public_ip)
+            echo "Raw output: '$RAW'"
+            
+            # Extrair IP usando múltiplos métodos
+            if [[ $RAW =~ ([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}) ]]; then
+              IP="${BASH_REMATCH[1]}"
+            else
+              IP=$(echo "$RAW" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+            fi
+          fi
+          
+          echo "✅ IP extraído: '$IP'"
+          
+          # Validar formato do IP
+          if [[ ! $IP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+            echo "❌ ERRO: IP inválido extraído: $IP"
+            exit 1
+          fi
+          
           echo "ec2_ip=$IP" >> $GITHUB_OUTPUT
+          echo "🎯 IP salvo no output: $IP"
         working-directory: terraform
+
+      - name: Debug do output
+        run: |
+          echo "📤 Outputs disponíveis:"
+          echo "ec2_ip: ${{ steps.terraform_output.outputs.ec2_ip }}"
+          echo "GITHUB_OUTPUT:"
+          cat $GITHUB_OUTPUT || true
 
   deploy:
     runs-on: ubuntu-latest
@@ -52,109 +93,106 @@ jobs:
       - name: Checkout do código
         uses: actions/checkout@v3
 
-      - name: Verificar IP recebido
-        run: echo "IP recebido: $EC2_IP"
+      - name: Exibir IP recebido do Terraform
+        run: |
+          echo "🔍 Verificando IP recebido..."
+          echo "IP do needs: ${{ needs.terraform.outputs.ec2_ip }}"
+          echo "Variável EC2_IP: $EC2_IP"
+          
+          if [ -z "$EC2_IP" ]; then
+            echo "❌ ERRO: EC2_IP está vazio!"
+            echo "Debug dos outputs:"
+            echo "needs.terraform.outputs:"
+            echo "${{ toJSON(needs.terraform.outputs) }}"
+            exit 1
+          fi
+          
+          if [[ ! $EC2_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "❌ ERRO: Formato de IP inválido: $EC2_IP"
+            exit 1
+          fi
+          
+          echo "✅ IP válido recebido: $EC2_IP"
 
       - name: Criar chave SSH para acessar EC2
         run: |
+          echo "🔑 Criando chave SSH..."
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > id_rsa
           chmod 600 id_rsa
+          
+          # Verificar se a chave foi criada
+          echo "Verificando chave:"
+          ls -la id_rsa
+          echo "Primeiras linhas:"
+          head -2 id_rsa
 
       - name: Testar conexão SSH
         run: |
-          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP "echo '✅ Conexão SSH OK'"
-
-      - name: Instalar Docker na EC2
-        run: |
-          echo "🐳 Instalando Docker na EC2..."
-          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP << 'EOF'
-            # Atualizar pacotes
-            sudo apt-get update
-            
-            # Instalar dependências
-            sudo apt-get install -y \
-                ca-certificates \
-                curl \
-                gnupg \
-                lsb-release
-            
-            # Adicionar chave GPG oficial do Docker
-            sudo mkdir -p /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            
-            # Configurar repositório
-            echo \
-              "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-              $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            
-            # Instalar Docker Engine
-            sudo apt-get update
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-            
-            # Adicionar usuário ubuntu ao grupo docker
-            sudo usermod -aG docker ubuntu
-            
-            # Iniciar e habilitar Docker
-            sudo systemctl start docker
-            sudo systemctl enable docker
-            
-            # Instalar Docker Compose (versão standalone - opcional)
-            sudo curl -L "https://github.com/docker/compose/releases/download/v2.23.0/docker-compose-$(uname -s)-$(uname -m)" \
-              -o /usr/local/bin/docker-compose
-            sudo chmod +x /usr/local/bin/docker-compose
-            
-            # Verificar instalações
-            echo "✅ Docker instalado:"
-            docker --version
-            echo "✅ Docker Compose instalado:"
-            docker-compose --version
-            
-            # Testar Docker
-            sudo docker run hello-world
-          EOF
+          echo "🔌 Testando conexão com a EC2..."
+          IP="$EC2_IP"
+          
+          # Aguardar instância ficar pronta
+          echo "⏳ Aguardando instância ficar disponível..."
+          for i in {1..30}; do
+            if timeout 5 nc -z $IP 22 2>/dev/null; then
+              echo "✅ Porta 22 está aberta"
+              break
+            else
+              echo "Tentativa $i/30: SSH ainda não disponível..."
+              sleep 5
+            fi
+          done
+          
+          # Testar conexão SSH
+          echo "Testando autenticação SSH..."
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i id_rsa ubuntu@$IP "echo '✅ Conexão SSH bem sucedida!'" || {
+            echo "❌ Falha na conexão SSH"
+            echo "Verifique:"
+            echo "1. Se a chave SSH está correta"
+            echo "2. Se o security group permite SSH (porta 22)"
+            echo "3. Se o usuário é 'ubuntu'"
+            exit 1
+          }
 
       - name: Copiar código para EC2
         run: |
           echo "📤 Copiando arquivos para EC2..."
-          # Copiar apenas o necessário (excluir terraform e chaves)
-          rsync -avz -e "ssh -o StrictHostKeyChecking=no -i id_rsa" \
-            --exclude='terraform/' \
-            --exclude='id_rsa' \
-            --exclude='minha-chave*' \
-            --exclude='mykey' \
-            --exclude='.git/' \
-            --exclude='.github/' \
-            ./ ubuntu@$EC2_IP:/home/ubuntu/app/
+          IP="$EC2_IP"
+          
+          # Listar arquivos que serão copiados
+          echo "Arquivos locais:"
+          ls -la
+          
+          # Copiar com verbose
+          scp -v -o StrictHostKeyChecking=no -i id_rsa -r ./ ubuntu@$IP:/home/ubuntu/app
+          
+          echo "✅ Cópia concluída!"
 
       - name: Deploy com Docker Compose
         run: |
           echo "🚀 Executando deploy..."
-          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP << 'EOF'
+          IP="$EC2_IP"
+          
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP "
+            echo '📂 Acessando diretório /home/ubuntu/app...'
             cd /home/ubuntu/app
             
-            echo "📋 Conteúdo do diretório:"
+            echo '📋 Conteúdo do diretório:'
             ls -la
             
-            echo "🐳 Verificando Docker..."
+            echo '🐳 Verificando Docker...'
             docker --version
             docker-compose --version
             
-            echo "🔨 Construindo e iniciando containers..."
-            # Usar docker compose (plugin) ou docker-compose
-            docker compose up -d --build || docker-compose up -d --build
+            echo '🔨 Construindo e iniciando containers...'
+            sudo docker-compose up -d --build
             
-            echo "⏳ Aguardando containers iniciarem..."
-            sleep 10
+            echo '📊 Status dos containers:'
+            sudo docker-compose ps
             
-            echo "📊 Status dos containers:"
-            docker compose ps || docker-compose ps
-            
-            echo "📝 Logs da aplicação:"
-            docker compose logs --tail=20 || docker-compose logs --tail=20
-            
-            echo "🌐 Verificando se aplicação está respondendo..."
-            curl -f http://localhost:5000 || echo "Aplicação ainda iniciando..."
-          EOF
+            echo '📝 Logs da aplicação:'
+            sudo docker-compose logs --tail=10
+          "
 
       - name: Mostrar URL da aplicação
         run: |
@@ -165,5 +203,5 @@ jobs:
           echo "   http://$EC2_IP:5000"
           echo ""
           echo "🔍 Para verificar os logs:"
-          echo "   ssh -i id_rsa ubuntu@$EC2_IP 'cd /home/ubuntu/app && docker compose logs'"
+          echo "   ssh -i id_rsa ubuntu@$EC2_IP 'cd /home/ubuntu/app && docker-compose logs'"
           echo "===================================================="
