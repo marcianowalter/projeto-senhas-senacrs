@@ -52,12 +52,12 @@ jobs:
 
       - name: Copiar código para EC2
         run: |
-          scp -o StrictHostKeyChecking=no -i id_rsa -r ./ ec2-user@${{ needs.terraform.outputs.ec2_ip }}:/home/ec2-user/app
+          scp -o StrictHostKeyChecking=no -i id_rsa -r ./ ubuntu@${{ needs.terraform.outputs.ec2_ip }}:/home/ubuntu/app
 
       - name: Deploy com Docker Compose
         run: |
-          ssh -o StrictHostKeyChecking=no -i id_rsa ec2-user@${{ needs.terraform.outputs.ec2_ip }} \
-          "cd /home/ec2-user/app && docker-compose up -d --build"
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@${{ needs.terraform.outputs.ec2_ip }} \
+          "cd /home/ubuntu/app && docker-compose up -d --build"
 
       - name: Mostrar URL da aplicação
         run: |
