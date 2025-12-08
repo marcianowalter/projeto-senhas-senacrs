@@ -63,8 +63,9 @@ jobs:
 
       - name: Deploy com Docker Compose
         run: |
-          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP \
-          "cd /home/ubuntu/app && docker-compose up -d --build"
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP "
+            cd /home/ubuntu/app && docker-compose up -d --build
+          "
 
       - name: Mostrar URL da aplicação
         run: |
