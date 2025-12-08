@@ -1,4 +1,46 @@
-# ... (mantenha os jobs terraform iguais) ...
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: us-east-1
+    
+    outputs:
+      ec2_ip: ${{ steps.terraform_output.outputs.ec2_ip }}
+
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v3
+
+      - name: Setup do Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.7
+          terraform_wrapper: false
+
+      - name: Inicializar Terraform
+        run: terraform init
+        working-directory: terraform
+
+      - name: Aplicar Terraform
+        run: terraform apply -auto-approve
+        working-directory: terraform
+
+      - name: Capturar IP público da EC2
+        id: terraform_output
+        run: |
+          terraform output -json > tf_output.json
+          IP=$(jq -r '.ec2_public_ip.value' tf_output.json)
+          echo "ec2_ip=$IP" >> $GITHUB_OUTPUT
+        working-directory: terraform
 
   deploy:
     runs-on: ubuntu-latest
@@ -10,39 +52,118 @@
       - name: Checkout do código
         uses: actions/checkout@v3
 
-      - name: Criar chave SSH
+      - name: Verificar IP recebido
+        run: echo "IP recebido: $EC2_IP"
+
+      - name: Criar chave SSH para acessar EC2
         run: |
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > id_rsa
           chmod 600 id_rsa
 
-      - name: Instalar Docker na EC2 (script rápido)
+      - name: Testar conexão SSH
         run: |
-          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP "
-            # Script rápido de instalação do Docker
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP "echo '✅ Conexão SSH OK'"
+
+      - name: Instalar Docker na EC2
+        run: |
+          echo "🐳 Instalando Docker na EC2..."
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP << 'EOF'
+            # Atualizar pacotes
             sudo apt-get update
-            sudo apt-get install -y docker.io docker-compose
+            
+            # Instalar dependências
+            sudo apt-get install -y \
+                ca-certificates \
+                curl \
+                gnupg \
+                lsb-release
+            
+            # Adicionar chave GPG oficial do Docker
+            sudo mkdir -p /etc/apt/keyrings
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            
+            # Configurar repositório
+            echo \
+              "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+              $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+            
+            # Instalar Docker Engine
+            sudo apt-get update
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+            
+            # Adicionar usuário ubuntu ao grupo docker
             sudo usermod -aG docker ubuntu
+            
+            # Iniciar e habilitar Docker
             sudo systemctl start docker
             sudo systemctl enable docker
-            echo 'Docker e Docker Compose instalados'
+            
+            # Instalar Docker Compose (versão standalone - opcional)
+            sudo curl -L "https://github.com/docker/compose/releases/download/v2.23.0/docker-compose-$(uname -s)-$(uname -m)" \
+              -o /usr/local/bin/docker-compose
+            sudo chmod +x /usr/local/bin/docker-compose
+            
+            # Verificar instalações
+            echo "✅ Docker instalado:"
+            docker --version
+            echo "✅ Docker Compose instalado:"
+            docker-compose --version
+            
+            # Testar Docker
+            sudo docker run hello-world
+          EOF
+
+      - name: Copiar código para EC2
+        run: |
+          echo "📤 Copiando arquivos para EC2..."
+          # Copiar apenas o necessário (excluir terraform e chaves)
+          rsync -avz -e "ssh -o StrictHostKeyChecking=no -i id_rsa" \
+            --exclude='terraform/' \
+            --exclude='id_rsa' \
+            --exclude='minha-chave*' \
+            --exclude='mykey' \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            ./ ubuntu@$EC2_IP:/home/ubuntu/app/
+
+      - name: Deploy com Docker Compose
+        run: |
+          echo "🚀 Executando deploy..."
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP << 'EOF'
+            cd /home/ubuntu/app
+            
+            echo "📋 Conteúdo do diretório:"
+            ls -la
+            
+            echo "🐳 Verificando Docker..."
             docker --version
             docker-compose --version
-          "
+            
+            echo "🔨 Construindo e iniciando containers..."
+            # Usar docker compose (plugin) ou docker-compose
+            docker compose up -d --build || docker-compose up -d --build
+            
+            echo "⏳ Aguardando containers iniciarem..."
+            sleep 10
+            
+            echo "📊 Status dos containers:"
+            docker compose ps || docker-compose ps
+            
+            echo "📝 Logs da aplicação:"
+            docker compose logs --tail=20 || docker-compose logs --tail=20
+            
+            echo "🌐 Verificando se aplicação está respondendo..."
+            curl -f http://localhost:5000 || echo "Aplicação ainda iniciando..."
+          EOF
 
-      - name: Copiar aplicação
+      - name: Mostrar URL da aplicação
         run: |
-          scp -o StrictHostKeyChecking=no -i id_rsa -r ./ ubuntu@$EC2_IP:/home/ubuntu/app
-
-      - name: Executar Docker Compose
-        run: |
-          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP "
-            cd /home/ubuntu/app
-            sudo docker-compose up -d --build
-            sleep 5
-            sudo docker-compose ps
-            echo 'Aplicação disponível em: http://localhost:5000'
-          "
-
-      - name: Mostrar URL
-        run: |
-          echo "Aplicação disponível em: http://$EC2_IP:5000"
+          echo "===================================================="
+          echo "✅ DEPLOY CONCLUÍDO COM SUCESSO!"
+          echo ""
+          echo "🌐 A aplicação está disponível em:"
+          echo "   http://$EC2_IP:5000"
+          echo ""
+          echo "🔍 Para verificar os logs:"
+          echo "   ssh -i id_rsa ubuntu@$EC2_IP 'cd /home/ubuntu/app && docker compose logs'"
+          echo "===================================================="
