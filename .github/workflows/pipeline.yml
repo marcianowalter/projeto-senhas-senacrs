@@ -8,15 +8,18 @@ on:
 jobs:
   terraform:
     runs-on: ubuntu-latest
+    outputs:
+      ec2_ip: ${{ steps.terraform_output.outputs.ec2_ip }}
     steps:
       - name: Checkout do código
         uses: actions/checkout@v3
 
       - name: Configurar credenciais AWS
-        run: |
-          echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $GITHUB_ENV
-          echo "AWS_DEFAULT_REGION=us-east-1" >> $GITHUB_ENV
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: echo "Credenciais AWS configuradas"
 
       - name: Setup do Terraform
         uses: hashicorp/setup-terraform@v2
@@ -34,8 +37,7 @@ jobs:
       - name: Obter IP público da EC2
         id: terraform_output
         run: |
-          IP=$(terraform output -raw ec2_public_ip | tr -d '\n' | tr -d '\r')
-          echo "EC2_IP=$IP" >> $GITHUB_ENV
+          echo "ec2_ip=$(terraform output -raw ec2_public_ip)" >> $GITHUB_OUTPUT
         working-directory: terraform
 
   deploy:
@@ -52,15 +54,15 @@ jobs:
 
       - name: Copiar código para EC2
         run: |
-          scp -o StrictHostKeyChecking=no -i id_rsa -r ./ ec2-user@$EC2_IP:/home/ec2-user/app
+          scp -o StrictHostKeyChecking=no -i id_rsa -r ./ ec2-user@${{ needs.terraform.outputs.ec2_ip }}:/home/ec2-user/app
 
       - name: Deploy com Docker Compose
         run: |
-          ssh -o StrictHostKeyChecking=no -i id_rsa ec2-user@$EC2_IP \
+          ssh -o StrictHostKeyChecking=no -i id_rsa ec2-user@${{ needs.terraform.outputs.ec2_ip }} \
           "cd /home/ec2-user/app && docker-compose up -d --build"
 
       - name: Mostrar URL da aplicação
         run: |
           echo "===================================================="
-          echo "✅ A aplicação está disponível em: http://$EC2_IP:5000"
+          echo "✅ A aplicação está disponível em: http://${{ needs.terraform.outputs.ec2_ip }}:5000"
           echo "===================================================="
