@@ -117,6 +117,12 @@ jobs:
             echo "Atualizando sistema..."
             sudo apt-get update -y
 
+            echo "⏳ Aguardando liberação do lock do APT..."
+            while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+              echo "APT está ocupado... aguardando 3s"
+              sleep 3
+            done
+
             echo "Instalando pacotes necessários..."
             sudo apt-get install -y \
                 apt-transport-https \
