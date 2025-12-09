@@ -133,26 +133,29 @@ jobs:
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
             sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
             
-            echo "📥 Instalando Docker Engine..."
+            echo "Instalando Docker Engine..."
             sudo apt-get update -y
             sudo apt-get install -y docker-ce docker-ce-cli containerd.io
             
-            echo "📦 Instalando Docker Compose..."
+            echo "Aguardando Docker iniciar..."
+            sleep 10
+            
+            echo "Instalando Docker Compose..."
             sudo curl -L "https://github.com/docker/compose/releases/download/v2.23.0/docker-compose-$(uname -s)-$(uname -m)" \
               -o /usr/local/bin/docker-compose
             sudo chmod +x /usr/local/bin/docker-compose
             
-            echo "👥 Criando grupo docker..."
+            echo "Criando grupo docker..."
             sudo groupadd docker 2>/dev/null || true
             
-            echo "👤 Adicionando usuário ao grupo docker..."
+            echo "Adicionando usuário ao grupo docker..."
             sudo usermod -aG docker ubuntu
             
-            echo "🚀 Iniciando Docker..."
+            echo "Iniciando Docker..."
             sudo systemctl start docker
             sudo systemctl enable docker
             
-            echo "✅ Verificando instalações..."
+            echo "Verificando instalações..."
             sudo docker --version
             /usr/local/bin/docker-compose --version
             
@@ -196,39 +199,39 @@ jobs:
 
       - name: Deploy com Docker Compose
         run: |
-          echo "🚀 Executando deploy..."
+          echo "Executando deploy..."
           IP="$EC2_IP"
           
           ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP << 'EOF'
-            echo "📂 Acessando diretório /home/ubuntu/app..."
+            echo "Acessando diretório /home/ubuntu/app..."
             cd /home/ubuntu/app
             
             echo "Conteúdo do diretório:"
             ls -la
             
-            echo "🐳 Verificando Docker..."
+            echo "Verificando Docker..."
             docker --version || sudo docker --version
             docker-compose --version || /usr/local/bin/docker-compose --version
             
-            echo "🔨 Parando containers existentes..."
+            echo "Parando containers existentes..."
             docker-compose down 2>/dev/null || sudo docker-compose down 2>/dev/null || true
             
-            echo "🏗️ Construindo e iniciando containers..."
+            echo "Construindo e iniciando containers..."
             docker-compose up -d --build || sudo docker-compose up -d --build
             
-            echo "⏳ Aguardando containers iniciarem..."
+            echo "Aguardando containers iniciarem..."
             sleep 20
             
-            echo "📊 Status dos containers:"
+            echo "Status dos containers:"
             docker-compose ps || sudo docker-compose ps
             
-            echo "📝 Logs da aplicação:"
+            echo "Logs da aplicação:"
             docker-compose logs --tail=30 || sudo docker-compose logs --tail=30
             
-            echo "🌐 Testando aplicação..."
+            echo "Testando aplicação..."
             for i in {1..10}; do
               if curl -f http://localhost:5000 2>/dev/null; then
-                echo "✅ Aplicação respondendo!"
+                echo "Aplicação respondendo!"
                 break
               else
                 echo "Tentativa $i/10: Aguardando aplicação..."
@@ -242,9 +245,9 @@ jobs:
           echo "===================================================="
           echo "✅ DEPLOY CONCLUÍDO COM SUCESSO!"
           echo ""
-          echo "🌐 A aplicação está disponível em:"
+          echo "A aplicação está disponível em:"
           echo "   http://$EC2_IP:5000"
           echo ""
-          echo "🔍 Para verificar os logs:"
+          echo "Para verificar os logs:"
           echo "   ssh -i id_rsa ubuntu@$EC2_IP 'cd /home/ubuntu/app && docker-compose logs -f'"
           echo "===================================================="
