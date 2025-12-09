@@ -40,15 +40,15 @@ jobs:
       - name: Capturar IP público da EC2
         id: terraform_output
         run: |
-          echo "🔍 Obtendo output do Terraform..."
+          echo "Obtendo output do Terraform..."
           
           terraform output -json > tf_output.json
           IP=$(jq -r '.ec2_public_ip.value' tf_output.json)
           
-          echo "✅ IP extraído: '$IP'"
+          echo "IP extraído: '$IP'"
           
           if [[ ! $IP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-            echo "❌ ERRO: IP inválido extraído: $IP"
+            echo "ERRO: IP inválido extraído: $IP"
             exit 1
           fi
           
@@ -67,24 +67,24 @@ jobs:
 
       - name: Exibir IP recebido do Terraform
         run: |
-          echo "🔍 Verificando IP recebido..."
+          echo "Verificando IP recebido..."
           echo "Variável EC2_IP: $EC2_IP"
           
           if [ -z "$EC2_IP" ]; then
-            echo "❌ ERRO: EC2_IP está vazio!"
+            echo "ERRO: EC2_IP está vazio!"
             exit 1
           fi
           
           if [[ ! $EC2_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "❌ ERRO: Formato de IP inválido: $EC2_IP"
+            echo "ERRO: Formato de IP inválido: $EC2_IP"
             exit 1
           fi
           
-          echo "✅ IP válido recebido: $EC2_IP"
+          echo "IP válido recebido: $EC2_IP"
 
       - name: Criar chave SSH para acessar EC2
         run: |
-          echo "🔑 Criando chave SSH..."
+          echo "Criando chave SSH..."
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > id_rsa
           chmod 600 id_rsa
 
@@ -96,7 +96,7 @@ jobs:
           echo "⏳ Aguardando instância ficar disponível..."
           for i in {1..20}; do
             if timeout 5 nc -z $IP 22 2>/dev/null; then
-              echo "✅ Porta 22 está aberta"
+              echo "Porta 22 está aberta"
               break
             else
               echo "Tentativa $i/20: SSH ainda não disponível..."
@@ -104,19 +104,19 @@ jobs:
             fi
           done
           
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i id_rsa ubuntu@$IP "echo '✅ Conexão SSH bem sucedida!'"
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i id_rsa ubuntu@$IP "echo 'Conexão SSH bem sucedida!'"
 
-      # 🔥🔥🔥 CORREÇÃO: INSTALAÇÃO DIRETA DO DOCKER SEM SCRIPT OFICIAL 🔥🔥🔥
+      #CORREÇÃO: INSTALAÇÃO DIRETA DO DOCKER SEM SCRIPT OFICIAL
       - name: Instalar Docker e Docker Compose na EC2
         run: |
-          echo "🐳 INSTALANDO DOCKER NA EC2 (MÉTODO DIRETO)..."
+          echo "INSTALANDO DOCKER NA EC2 (MÉTODO DIRETO)..."
           IP="$EC2_IP"
           
           ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP << 'EOF'
-            echo "📦 Atualizando sistema..."
+            echo "Atualizando sistema..."
             sudo apt-get update -y
             
-            echo "🔧 Instalando pacotes necessários..."
+            echo "Instalando pacotes necessários..."
             sudo apt-get install -y \
                 apt-transport-https \
                 ca-certificates \
@@ -125,11 +125,11 @@ jobs:
                 lsb-release \
                 software-properties-common
             
-            echo "🔑 Adicionando chave GPG do Docker..."
+            echo "Adicionando chave GPG do Docker..."
             sudo mkdir -p /etc/apt/keyrings
             curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
             
-            echo "📝 Adicionando repositório Docker..."
+            echo "Adicionando repositório Docker..."
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
             sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
             
