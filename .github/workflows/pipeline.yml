@@ -106,16 +106,17 @@ jobs:
           
           ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i id_rsa ubuntu@$IP "echo 'Conexão SSH bem sucedida!'"
 
-      #CORREÇÃO: INSTALAÇÃO DIRETA DO DOCKER SEM SCRIPT OFICIAL
       - name: Instalar Docker e Docker Compose na EC2
         run: |
-          echo "INSTALANDO DOCKER NA EC2 (MÉTODO DIRETO)..."
+          echo "INSTALANDO DOCKER NA EC2..."
           IP="$EC2_IP"
           
           ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP << 'EOF'
+            set -e
+
             echo "Atualizando sistema..."
             sudo apt-get update -y
-            
+
             echo "Instalando pacotes necessários..."
             sudo apt-get install -y \
                 apt-transport-https \
@@ -124,78 +125,79 @@ jobs:
                 gnupg \
                 lsb-release \
                 software-properties-common
-            
+
             echo "Adicionando chave GPG do Docker..."
             sudo mkdir -p /etc/apt/keyrings
             curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-            
+
             echo "Adicionando repositório Docker..."
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
             sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            
+
             echo "Instalando Docker Engine..."
             sudo apt-get update -y
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io
-            
-            echo "Aguardando Docker iniciar..."
-            sleep 20
-            
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io || true
+
+            echo "⏳ Aguardando Docker daemon iniciar..."
+            for i in {1..15}; do
+              if sudo docker info >/dev/null 2>&1; then
+                echo "✅ Docker daemon está ativo!"
+                break
+              else
+                echo "Tentativa $i/15: Docker ainda não iniciou..."
+                sleep 2
+              fi
+            done
+
+            if ! sudo docker info >/dev/null 2>&1; then
+              echo "❌ Docker não iniciou após 30 segundos."
+              exit 1
+            fi
+
             echo "Instalando Docker Compose..."
             sudo curl -L "https://github.com/docker/compose/releases/download/v2.23.0/docker-compose-$(uname -s)-$(uname -m)" \
               -o /usr/local/bin/docker-compose
             sudo chmod +x /usr/local/bin/docker-compose
-            
+
             echo "Criando grupo docker..."
             sudo groupadd docker 2>/dev/null || true
-            
+
             echo "Adicionando usuário ao grupo docker..."
             sudo usermod -aG docker ubuntu
-            
-            echo "Iniciando Docker..."
-            sudo systemctl start docker
-            sudo systemctl enable docker
-            
+
             echo "Verificando instalações..."
             sudo docker --version
             /usr/local/bin/docker-compose --version
-            
-            echo "🧪 Testando Docker..."
-            sudo docker run --rm hello-world
           EOF
 
       - name: Configurar permissões Docker sem sudo
         run: |
-          echo "🔧 Configurando permissões para usar Docker sem sudo..."
+          echo "Configurando permissões para usar Docker sem sudo..."
           IP="$EC2_IP"
           
           ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP "
-            # Configurar permissões do socket Docker
             sudo chown root:docker /var/run/docker.sock
             sudo chmod 666 /var/run/docker.sock
-            
-            # Aplicar mudanças de grupo sem logout
             sudo setfacl -m user:ubuntu:rw /var/run/docker.sock
-            
-            echo 'Permissões configuradas:'
             ls -la /var/run/docker.sock
           "
 
       - name: Copiar código para EC2
         run: |
-          echo "📤 Copiando arquivos para EC2..."
+          echo "Copiando arquivos para EC2..."
           IP="$EC2_IP"
 
           rsync -avz \
-          --exclude='.git' \
-          --exclude='.github' \
-          --exclude='terraform' \
-          --exclude='*.pem' \
-          --exclude='id_rsa' \
-          --exclude='minha-chave' \
-          --exclude='mykey' \
-          --exclude='*.pub' \
-          -e "ssh -o StrictHostKeyChecking=no -i id_rsa" \
-          ./ ubuntu@$IP:/home/ubuntu/app
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='terraform' \
+            --exclude='*.pem' \
+            --exclude='id_rsa' \
+            --exclude='minha-chave' \
+            --exclude='mykey' \
+            --exclude='*.pub' \
+            -e "ssh -o StrictHostKeyChecking=no -i id_rsa" \
+            ./ ubuntu@$IP:/home/ubuntu/app
 
       - name: Deploy com Docker Compose
         run: |
