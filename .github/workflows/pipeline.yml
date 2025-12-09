@@ -117,7 +117,7 @@ jobs:
             echo "Atualizando sistema..."
             sudo apt-get update -y
 
-            echo "⏳ Aguardando liberação de locks do APT..."
+            echo "Aguardando liberação de locks do APT..."
             while sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 \
                || sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
                || sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1 \
@@ -151,7 +151,7 @@ jobs:
             echo "⏳ Aguardando Docker daemon iniciar..."
             for i in {1..15}; do
               if sudo docker info >/dev/null 2>&1; then
-                echo "✅ Docker daemon está ativo!"
+                echo "Docker daemon está ativo!"
                 break
               else
                 echo "Tentativa $i/15: Docker ainda não iniciou..."
@@ -160,7 +160,7 @@ jobs:
             done
 
             if ! sudo docker info >/dev/null 2>&1; then
-              echo "❌ Docker não iniciou após 30 segundos."
+              echo "Docker não iniciou após 30 segundos."
               exit 1
             fi
 
