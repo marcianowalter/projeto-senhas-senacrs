@@ -255,7 +255,7 @@ jobs:
       - name: Mostrar URL da aplicação
         run: |
           echo "===================================================="
-          echo "✅ DEPLOY CONCLUÍDO COM SUCESSO!"
+          echo "DEPLOY CONCLUÍDO COM SUCESSO!"
           echo ""
           echo "A aplicação está disponível em:"
           echo "   http://$EC2_IP:5000"
