@@ -114,10 +114,7 @@ jobs:
           ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP << 'EOF'
             set -e
 
-            echo "Atualizando sistema..."
-            sudo apt-get update -y
-
-            echo "Aguardando liberação de locks do APT..."
+            echo "⏳ Aguardando liberação de locks do APT..."
             while sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 \
                || sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
                || sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1 \
@@ -125,6 +122,9 @@ jobs:
               echo "APT está ocupado... aguardando 3s"
               sleep 3
             done
+
+            echo "Atualizando sistema..."
+            sudo apt-get update -y
 
             echo "Instalando pacotes necessários..."
             sudo apt-get install -y \
@@ -148,10 +148,10 @@ jobs:
             sudo apt-get update -y
             sudo apt-get install -y docker-ce docker-ce-cli containerd.io || true
 
-            echo "Aguardando Docker daemon iniciar..."
+            echo "⏳ Aguardando Docker daemon iniciar..."
             for i in {1..15}; do
               if sudo docker info >/dev/null 2>&1; then
-                echo "Docker daemon está ativo!"
+                echo "✅ Docker daemon está ativo!"
                 break
               else
                 echo "Tentativa $i/15: Docker ainda não iniciou..."
@@ -160,7 +160,7 @@ jobs:
             done
 
             if ! sudo docker info >/dev/null 2>&1; then
-              echo "Docker não iniciou após 30 segundos."
+              echo "❌ Docker não iniciou após 30 segundos."
               exit 1
             fi
 
@@ -255,7 +255,7 @@ jobs:
       - name: Mostrar URL da aplicação
         run: |
           echo "===================================================="
-          echo "DEPLOY CONCLUÍDO COM SUCESSO!!!"
+          echo "✅ DEPLOY CONCLUÍDO COM SUCESSO!!!"
           echo ""
           echo "A aplicação está disponível em:"
           echo "   http://$EC2_IP:5000"
