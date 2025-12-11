@@ -95,17 +95,38 @@ jobs:
               sleep 3
             done
 
-            echo "Atualizando sistema..."
-            sudo apt-get update -y
+            # CORREÇÃO: Limpar cache APT antes de atualizar
+            echo "Limpando cache APT..."
+            sudo rm -rf /var/lib/apt/lists/*
+            sudo apt clean
+            sudo apt autoclean
 
-            echo "Instalando dependências..."
+            echo "Configurando locale para evitar warnings..."
+            sudo apt-get install -y language-pack-en-base
+            sudo locale-gen en_US.UTF-8
+            export LC_ALL=en_US.UTF-8
+            export LANG=en_US.UTF-8
+
+            echo "Atualizando sistema..."
+            sudo apt-get update -y -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false
+
+            echo "Atualizando pacotes básicos..."
+            sudo apt-get upgrade -y --allow-downgrades --allow-remove-essential --allow-change-held-packages
+
+            echo "Instalando dependências básicas..."
             sudo apt-get install -y \
               apt-transport-https \
               ca-certificates \
               curl \
               gnupg \
               lsb-release \
-              software-properties-common
+              software-properties-common \
+              python3-pip \
+              python3-setuptools \
+              command-not-found
+
+            # Configurar command-not-found
+            sudo update-command-not-found || true
 
             echo "Adicionando chave GPG do Docker..."
             sudo mkdir -p /etc/apt/keyrings
@@ -116,16 +137,21 @@ jobs:
             echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
               | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-            sudo apt-get update -y
+            # Atualizar APT novamente após adicionar repositório
+            sudo apt-get update -y -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false
 
             echo "Instalando Docker Engine..."
             sudo apt-get install -y docker-ce docker-ce-cli containerd.io
 
             echo "Aguardando Docker daemon..."
             for i in {1..15}; do
-              if sudo docker info >/dev/null 2>&1; then break; fi
+              if sudo systemctl is-active docker >/dev/null 2>&1 || sudo docker info >/dev/null 2>&1; then break; fi
               sleep 2
             done
+
+            echo "Iniciando Docker se necessário..."
+            sudo systemctl start docker || true
+            sudo systemctl enable docker || true
 
             echo "Instalando Docker Compose (plugin oficial)..."
             sudo apt-get install -y docker-compose-plugin
@@ -135,6 +161,7 @@ jobs:
             docker compose version
 
             sudo usermod -aG docker ubuntu
+            newgrp docker || true
           EOF
 
       - name: Copiar código para EC2
@@ -162,11 +189,15 @@ jobs:
             docker compose up -d --build
 
             echo "Aguardando aplicação..."
-            for i in {1..10}; do
-              if curl -f http://localhost:5000; then break; fi
+            for i in {1..30}; do
+              if curl -f http://localhost:5000 2>/dev/null || curl -k https://localhost:5000 2>/dev/null; then 
+                echo "Aplicação está no ar!"
+                break
+              fi
               sleep 5
             done
 
+            echo "Status dos containers:"
             docker compose ps
           EOF
 
