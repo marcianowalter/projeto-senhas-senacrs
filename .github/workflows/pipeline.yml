@@ -267,21 +267,21 @@ jobs:
             sleep 5
           done
           
-          echo "⚠️  Aplicação pode estar iniciando..."
+          echo "Aplicação iniciando..."
           echo "Tente acessar manualmente: http://$EC2_IP:5000"
 
       - name: Mostrar informações finais
         run: |
           echo "========================================="
-          echo "🚀 DEPLOY FINALIZADO!"
+          echo "DEPLOY FINALIZADO!"
           echo ""
-          echo "🌐 URL da aplicação:"
+          echo "URL da aplicação:"
           echo "   http://$EC2_IP:5000"
           echo ""
-          echo "🔧 IP da instância: $EC2_IP"
-          echo "📋 Para acessar via SSH:"
+          echo "IP da instância: $EC2_IP"
+          echo "Para acessar via SSH:"
           echo "   ssh -i id_rsa ubuntu@$EC2_IP"
           echo ""
-          echo "📊 Para ver logs da aplicação:"
+          echo "Para ver logs da aplicação use esse comando:"
           echo "   ssh -i id_rsa ubuntu@$EC2_IP 'cd /home/ubuntu/app && docker compose logs'"
           echo "========================================="
