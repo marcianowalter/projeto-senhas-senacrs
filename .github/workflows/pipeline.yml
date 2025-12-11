@@ -40,18 +40,14 @@ jobs:
       - name: Capturar IP público da EC2
         id: terraform_output
         run: |
-          echo "Obtendo output do Terraform..."
-          
           terraform output -json > tf_output.json
           IP=$(jq -r '.ec2_public_ip.value' tf_output.json)
-          
-          echo "IP extraído: '$IP'"
-          
-          if [[ ! $IP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
-            echo "ERRO: IP inválido extraído: $IP"
+
+          if [[ ! $IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "ERRO: IP inválido: $IP"
             exit 1
           fi
-          
+
           echo "ec2_ip=$IP" >> $GITHUB_OUTPUT
         working-directory: terraform
 
@@ -65,75 +61,51 @@ jobs:
       - name: Checkout do código
         uses: actions/checkout@v3
 
-      - name: Exibir IP recebido do Terraform
+      - name: Exibir IP recebido
         run: |
-          echo "Verificando IP recebido..."
-          echo "Variável EC2_IP: $EC2_IP"
-          
-          if [ -z "$EC2_IP" ]; then
-            echo "ERRO: EC2_IP está vazio!"
-            exit 1
-          fi
-          
-          if [[ ! $EC2_IP =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "ERRO: Formato de IP inválido: $EC2_IP"
-            exit 1
-          fi
-          
-          echo "IP válido recebido: $EC2_IP"
+          echo "EC2_IP: $EC2_IP"
+          if [[ -z "$EC2_IP" ]]; then exit 1; fi
 
-      - name: Criar chave SSH para acessar EC2
+      - name: Criar chave SSH
         run: |
-          echo "Criando chave SSH..."
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > id_rsa
           chmod 600 id_rsa
 
-      - name: Testar conexão SSH
+      - name: Testar SSH
         run: |
-          echo "🔌 Testando conexão com a EC2..."
           IP="$EC2_IP"
-          
-          echo "⏳ Aguardando instância ficar disponível..."
           for i in {1..20}; do
-            if timeout 5 nc -z $IP 22 2>/dev/null; then
-              echo "Porta 22 está aberta"
-              break
-            else
-              echo "Tentativa $i/20: SSH ainda não disponível..."
-              sleep 5
-            fi
+            if timeout 5 nc -z $IP 22; then break; fi
+            sleep 5
           done
-          
-          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i id_rsa ubuntu@$IP "echo 'Conexão SSH bem sucedida!'"
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP "echo OK"
 
-      - name: Instalar Docker e Docker Compose na EC2
+      - name: Instalar Docker + Compose
         run: |
-          echo "INSTALANDO DOCKER NA EC2..."
           IP="$EC2_IP"
-          
+
           ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP << 'EOF'
             set -e
 
-            echo "⏳ Aguardando liberação de locks do APT..."
+            echo "Aguardando locks do APT..."
             while sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 \
                || sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
                || sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1 \
                || sudo fuser /var/cache/apt/archives/lock >/dev/null 2>&1; do
-              echo "APT está ocupado... aguardando 3s"
               sleep 3
             done
 
             echo "Atualizando sistema..."
             sudo apt-get update -y
 
-            echo "Instalando pacotes necessários..."
+            echo "Instalando dependências..."
             sudo apt-get install -y \
-                apt-transport-https \
-                ca-certificates \
-                curl \
-                gnupg \
-                lsb-release \
-                software-properties-common
+              apt-transport-https \
+              ca-certificates \
+              curl \
+              gnupg \
+              lsb-release \
+              software-properties-common
 
             echo "Adicionando chave GPG do Docker..."
             sudo mkdir -p /etc/apt/keyrings
@@ -141,125 +113,66 @@ jobs:
               | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/docker.gpg
 
             echo "Adicionando repositório Docker..."
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | \
-            sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
+              | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+            sudo apt-get update -y
 
             echo "Instalando Docker Engine..."
-            sudo apt-get update -y
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io || true
+            sudo apt-get install -y docker-ce docker-ce-cli containerd.io
 
-            echo "⏳ Aguardando Docker daemon iniciar..."
+            echo "Aguardando Docker daemon..."
             for i in {1..15}; do
-              if sudo docker info >/dev/null 2>&1; then
-                echo "✅ Docker daemon está ativo!"
-                break
-              else
-                echo "Tentativa $i/15: Docker ainda não iniciou..."
-                sleep 2
-              fi
+              if sudo docker info >/dev/null 2>&1; then break; fi
+              sleep 2
             done
 
-            if ! sudo docker info >/dev/null 2>&1; then
-              echo "❌ Docker não iniciou após 30 segundos."
-              exit 1
-            fi
+            echo "Instalando Docker Compose (plugin oficial)..."
+            sudo apt-get install -y docker-compose-plugin
 
-            echo "Instalando Docker Compose..."
-            sudo curl -L "https://github.com/docker/compose/releases/download/v2.23.0/docker-compose-$(uname -s)-$(uname -m)" \
-              -o /usr/local/bin/docker-compose
-            sudo chmod +x /usr/local/bin/docker-compose
+            echo "Verificando versões..."
+            docker --version
+            docker compose version
 
-            echo "Criando grupo docker..."
-            sudo groupadd docker 2>/dev/null || true
-
-            echo "Adicionando usuário ao grupo docker..."
             sudo usermod -aG docker ubuntu
-
-            echo "Verificando instalações..."
-            sudo docker --version
-            /usr/local/bin/docker-compose --version
           EOF
-
-      - name: Configurar permissões Docker sem sudo
-        run: |
-          echo "Configurando permissões para usar Docker sem sudo..."
-          IP="$EC2_IP"
-          
-          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP "
-            sudo chown root:docker /var/run/docker.sock
-            sudo chmod 666 /var/run/docker.sock
-            sudo setfacl -m user:ubuntu:rw /var/run/docker.sock
-            ls -la /var/run/docker.sock
-          "
 
       - name: Copiar código para EC2
         run: |
-          echo "Copiando arquivos para EC2..."
           IP="$EC2_IP"
-
           rsync -avz \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='terraform' \
-            --exclude='*.pem' \
             --exclude='id_rsa' \
-            --exclude='minha-chave' \
-            --exclude='mykey' \
-            --exclude='*.pub' \
             -e "ssh -o StrictHostKeyChecking=no -i id_rsa" \
             ./ ubuntu@$IP:/home/ubuntu/app
 
       - name: Deploy com Docker Compose
         run: |
-          echo "Executando deploy..."
           IP="$EC2_IP"
-          
+
           ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP << 'EOF'
-            echo "Acessando diretório /home/ubuntu/app..."
             cd /home/ubuntu/app
-            
-            echo "Conteúdo do diretório:"
-            ls -la
-            
-            echo "Verificando Docker..."
-            docker --version || sudo docker --version
-            docker-compose --version || /usr/local/bin/docker-compose --version
-            
-            echo "Parando containers existentes..."
-            docker-compose down 2>/dev/null || sudo docker-compose down 2>/dev/null || true
-            
-            echo "Construindo e iniciando containers..."
-            docker-compose up -d --build || sudo docker-compose up -d --build
-            
-            echo "Aguardando containers iniciarem..."
-            sleep 20
-            
-            echo "Status dos containers:"
-            docker-compose ps || sudo docker-compose ps
-            
-            echo "Logs da aplicação:"
-            docker-compose logs --tail=30 || sudo docker-compose logs --tail=30
-            
-            echo "Testando aplicação..."
+
+            echo "Parando containers antigos..."
+            docker compose down || true
+
+            echo "Subindo aplicação..."
+            docker compose up -d --build
+
+            echo "Aguardando aplicação..."
             for i in {1..10}; do
-              if curl -f http://localhost:5000 2>/dev/null; then
-                echo "Aplicação respondendo!"
-                break
-              else
-                echo "Tentativa $i/10: Aguardando aplicação..."
-                sleep 5
-              fi
+              if curl -f http://localhost:5000; then break; fi
+              sleep 5
             done
+
+            docker compose ps
           EOF
 
-      - name: Mostrar URL da aplicação
+      - name: Mostrar URL
         run: |
-          echo "===================================================="
-          echo "DEPLOY CONCLUÍDO COM SUCESSO!!!"
-          echo ""
-          echo "A aplicação está disponível em:"
-          echo "   http://$EC2_IP:5000"
-          echo ""
-          echo "Para verificar os logs:"
-          echo "   ssh -i id_rsa ubuntu@$EC2_IP 'cd /home/ubuntu/app && docker-compose logs -f'"
-          echo "===================================================="
+          echo "==============================================="
+          echo "✅ DEPLOY FINALIZADO!"
+          echo "Acesse: http://$EC2_IP:5000"
+          echo "==============================================="
