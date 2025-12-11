@@ -35,11 +35,14 @@ jobs:
         working-directory: terraform
       
       - name: Instalar jq
-        run: sudo apt-get install -y jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
 
       - name: Capturar IP público da EC2
         id: terraform_output
         run: |
+          cd terraform
           terraform output -json > tf_output.json
           IP=$(jq -r '.ec2_public_ip.value' tf_output.json)
 
@@ -49,7 +52,7 @@ jobs:
           fi
 
           echo "ec2_ip=$IP" >> $GITHUB_OUTPUT
-        working-directory: terraform
+        shell: bash
 
   deploy:
     runs-on: ubuntu-latest
@@ -64,146 +67,221 @@ jobs:
       - name: Exibir IP recebido
         run: |
           echo "EC2_IP: $EC2_IP"
-          if [[ -z "$EC2_IP" ]]; then exit 1; fi
+          if [[ -z "$EC2_IP" ]]; then 
+            echo "ERRO: IP da EC2 não recebido"
+            exit 1
+          fi
 
       - name: Criar chave SSH
         run: |
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > id_rsa
           chmod 600 id_rsa
 
-      - name: Testar SSH
+      - name: Testar conexão SSH
         run: |
-          IP="$EC2_IP"
-          for i in {1..20}; do
-            if timeout 5 nc -z $IP 22; then break; fi
+          for i in {1..30}; do
+            if timeout 5 nc -z $EC2_IP 22; then
+              echo "SSH está ativo na tentativa $i"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "ERRO: Não foi possível conectar via SSH após 30 tentativas"
+              exit 1
+            fi
             sleep 5
           done
-          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP "echo OK"
 
-      - name: Instalar Docker + Compose
+      - name: Instalar Docker na EC2
         run: |
-          IP="$EC2_IP"
-
-          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP << 'EOF'
+          ssh -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=30 \
+              -o ServerAliveInterval=60 \
+              -i id_rsa ubuntu@$EC2_IP << 'EOF'
             set -e
+            echo "=== Configurando ambiente na EC2 ==="
 
-            echo "Aguardando locks do APT..."
-            while sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1 \
-               || sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 \
-               || sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1 \
-               || sudo fuser /var/cache/apt/archives/lock >/dev/null 2>&1; do
-              sleep 3
-            done
+            # Verificar sistema
+            echo "Sistema: $(lsb_release -ds)"
+            echo "Arquitetura: $(uname -m)"
 
-            # CORREÇÃO: Limpar cache APT antes de atualizar
-            echo "Limpando cache APT..."
-            sudo rm -rf /var/lib/apt/lists/*
-            sudo apt clean
-            sudo apt autoclean
+            # Remover locks se existirem
+            echo "1. Removendo locks do APT..."
+            sudo rm -f /var/lib/apt/lists/lock 2>/dev/null || true
+            sudo rm -f /var/lib/dpkg/lock 2>/dev/null || true
+            sudo rm -f /var/lib/dpkg/lock-frontend 2>/dev/null || true
+            sudo rm -f /var/cache/apt/archives/lock 2>/dev/null || true
 
-            echo "Configurando locale para evitar warnings..."
-            sudo apt-get install -y language-pack-en-base
+            # Configurar locale sem pacote específico
+            echo "2. Configurando locale..."
+            sudo apt-get install -y locales
             sudo locale-gen en_US.UTF-8
             export LC_ALL=en_US.UTF-8
             export LANG=en_US.UTF-8
+            sudo update-locale LANG=en_US.UTF-8
 
-            echo "Atualizando sistema..."
-            sudo apt-get update -y -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false
+            # Atualizar sistema de forma segura
+            echo "3. Atualizando sistema..."
+            sudo apt-get update -y
+            
+            # Primeiro upgrade básico
+            echo "4. Atualizando pacotes básicos..."
+            sudo apt-get upgrade -y --with-new-pkgs
 
-            echo "Atualizando pacotes básicos..."
-            sudo apt-get upgrade -y --allow-downgrades --allow-remove-essential --allow-change-held-packages
-
-            echo "Instalando dependências básicas..."
+            # Instalar dependências essenciais
+            echo "5. Instalando dependências..."
             sudo apt-get install -y \
               apt-transport-https \
               ca-certificates \
               curl \
               gnupg \
               lsb-release \
-              software-properties-common \
-              python3-pip \
-              python3-setuptools \
-              command-not-found
+              software-properties-common
 
-            # Configurar command-not-found
-            sudo update-command-not-found || true
+            # Adicionar repositório Docker
+            echo "6. Configurando repositório Docker..."
+            
+            # Criar diretório para chaves
+            sudo install -m 0755 -d /etc/apt/keyrings
+            
+            # Baixar e adicionar chave GPG
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | \
+              sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+            sudo chmod a+r /etc/apt/keyrings/docker.gpg
 
-            echo "Adicionando chave GPG do Docker..."
-            sudo mkdir -p /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
-              | sudo gpg --batch --yes --dearmor -o /etc/apt/keyrings/docker.gpg
+            # Adicionar repositório
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+              $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
-            echo "Adicionando repositório Docker..."
-            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" \
-              | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+            # Atualizar após adicionar repositório
+            echo "7. Atualizando APT com Docker..."
+            sudo apt-get update -y
 
-            # Atualizar APT novamente após adicionar repositório
-            sudo apt-get update -y -o Acquire::Check-Valid-Until=false -o Acquire::Check-Date=false
+            # Instalar Docker
+            echo "8. Instalando Docker Engine..."
+            sudo apt-get install -y \
+              docker-ce \
+              docker-ce-cli \
+              containerd.io \
+              docker-buildx-plugin \
+              docker-compose-plugin
 
-            echo "Instalando Docker Engine..."
-            sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+            # Configurar Docker
+            echo "9. Configurando Docker..."
+            sudo systemctl enable docker
+            sudo systemctl start docker
+            
+            # Adicionar usuário ao grupo docker
+            sudo usermod -aG docker ubuntu
 
-            echo "Aguardando Docker daemon..."
-            for i in {1..15}; do
-              if sudo systemctl is-active docker >/dev/null 2>&1 || sudo docker info >/dev/null 2>&1; then break; fi
-              sleep 2
-            done
-
-            echo "Iniciando Docker se necessário..."
-            sudo systemctl start docker || true
-            sudo systemctl enable docker || true
-
-            echo "Instalando Docker Compose (plugin oficial)..."
-            sudo apt-get install -y docker-compose-plugin
-
-            echo "Verificando versões..."
+            # Configurar uso imediato do grupo
+            newgrp docker << END
+            echo "10. Verificando instalação..."
             docker --version
             docker compose version
+            docker info --format 'Server Version: {{.ServerVersion}}'
+            END
 
-            sudo usermod -aG docker ubuntu
-            newgrp docker || true
+            echo "=== Docker instalado com sucesso ==="
           EOF
 
-      - name: Copiar código para EC2
+      - name: Copiar aplicação para EC2
         run: |
-          IP="$EC2_IP"
+          # Criar estrutura de diretórios primeiro
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP "mkdir -p /home/ubuntu/app"
+          
+          # Copiar arquivos
           rsync -avz \
             --exclude='.git' \
             --exclude='.github' \
             --exclude='terraform' \
             --exclude='id_rsa' \
+            --exclude='*.tfstate' \
+            --exclude='*.tfstate.backup' \
+            --exclude='.terraform' \
+            --exclude='.terraform.lock.hcl' \
             -e "ssh -o StrictHostKeyChecking=no -i id_rsa" \
-            ./ ubuntu@$IP:/home/ubuntu/app
+            ./ ubuntu@$EC2_IP:/home/ubuntu/app/
 
-      - name: Deploy com Docker Compose
+          # Dar permissões
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP "chmod -R 755 /home/ubuntu/app"
+
+      - name: Executar Docker Compose
         run: |
-          IP="$EC2_IP"
-
-          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$IP << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i id_rsa ubuntu@$EC2_IP << 'EOF'
             cd /home/ubuntu/app
-
-            echo "Parando containers antigos..."
-            docker compose down || true
-
-            echo "Subindo aplicação..."
+            
+            echo "=== Iniciando deploy com Docker Compose ==="
+            
+            # Verificar se existe docker-compose.yml
+            if [ ! -f "docker-compose.yml" ] && [ ! -f "docker-compose.yaml" ]; then
+              echo "ERRO: Arquivo docker-compose.yml não encontrado!"
+              ls -la
+              exit 1
+            fi
+            
+            # Parar containers existentes
+            echo "1. Parando containers anteriores..."
+            docker compose down --remove-orphans 2>/dev/null || true
+            
+            # Build e up
+            echo "2. Construindo e iniciando containers..."
             docker compose up -d --build
-
-            echo "Aguardando aplicação..."
+            
+            # Aguardar aplicação
+            echo "3. Aguardando aplicação ficar disponível..."
             for i in {1..30}; do
-              if curl -f http://localhost:5000 2>/dev/null || curl -k https://localhost:5000 2>/dev/null; then 
-                echo "Aplicação está no ar!"
-                break
+              echo "Tentativa $i/30..."
+              
+              # Verificar se container está rodando
+              if docker compose ps | grep -q "Up"; then
+                # Tentar acessar a aplicação
+                if curl -s -f --max-time 5 http://localhost:5000 > /dev/null 2>&1; then
+                  echo "✅ Aplicação está respondendo!"
+                  break
+                fi
               fi
               sleep 5
             done
-
-            echo "Status dos containers:"
+            
+            # Mostrar status
+            echo "4. Status final dos containers:"
             docker compose ps
+            
+            # Mostrar logs se houver erro
+            if ! curl -s --max-time 5 http://localhost:5000 > /dev/null 2>&1; then
+              echo "⚠️  Aplicação pode não estar respondendo. Últimos logs:"
+              docker compose logs --tail=100
+            fi
           EOF
 
-      - name: Mostrar URL
+      - name: Testar aplicação
         run: |
-          echo "==============================================="
-          echo "✅ DEPLOY FINALIZADO!"
-          echo "Acesse: http://$EC2_IP:5000"
-          echo "==============================================="
+          echo "Testando aplicação em http://$EC2_IP:5000..."
+          
+          for i in {1..10}; do
+            echo "Tentativa $i/10..."
+            if curl -s -f --max-time 10 http://$EC2_IP:5000; then
+              echo "✅ Aplicação está respondendo!"
+              exit 0
+            fi
+            sleep 5
+          done
+          
+          echo "⚠️  Aplicação pode estar iniciando..."
+          echo "Tente acessar manualmente: http://$EC2_IP:5000"
+
+      - name: Mostrar informações finais
+        run: |
+          echo "========================================="
+          echo "🚀 DEPLOY FINALIZADO!"
+          echo ""
+          echo "🌐 URL da aplicação:"
+          echo "   http://$EC2_IP:5000"
+          echo ""
+          echo "🔧 IP da instância: $EC2_IP"
+          echo "📋 Para acessar via SSH:"
+          echo "   ssh -i id_rsa ubuntu@$EC2_IP"
+          echo ""
+          echo "📊 Para ver logs da aplicação:"
+          echo "   ssh -i id_rsa ubuntu@$EC2_IP 'cd /home/ubuntu/app && docker compose logs'"
+          echo "========================================="
