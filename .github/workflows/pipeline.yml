@@ -250,7 +250,7 @@ jobs:
               if docker compose ps | grep -q "Up"; then
                 # Tentar acessar a aplicação
                 if curl -s -f --max-time 5 http://localhost:5000 > /dev/null 2>&1; then
-                  echo "✅ Aplicação está respondendo!"
+                  echo "Aplicação está respondendo!"
                   break
                 fi
               fi
@@ -263,7 +263,7 @@ jobs:
             
             # Mostrar logs se houver erro
             if ! curl -s --max-time 5 http://localhost:5000 > /dev/null 2>&1; then
-              echo "⚠️  Aplicação pode não estar respondendo. Últimos logs:"
+              echo "Aplicação pode não estar respondendo. Últimos logs:"
               docker compose logs --tail=100
             fi
           EOF
@@ -275,27 +275,27 @@ jobs:
           for i in {1..10}; do
             echo "Tentativa $i/10..."
             if curl -s -f --max-time 10 http://$EC2_IP:5000; then
-              echo "✅ Aplicação está respondendo!"
+              echo "Aplicação está respondendo!"
               exit 0
             fi
             sleep 5
           done
           
-          echo "⚠️  Aplicação pode estar iniciando..."
+          echo "Aplicação pode estar iniciando..."
           echo "Tente acessar manualmente: http://$EC2_IP:5000"
 
       - name: Mostrar informações finais
         run: |
           echo "========================================="
-          echo "🚀 DEPLOY FINALIZADO!"
+          echo "DEPLOY FINALIZADO!"
           echo ""
-          echo "🌐 URL da aplicação:"
+          echo "URL da aplicação:"
           echo "   http://$EC2_IP:5000"
           echo ""
-          echo "🔧 IP da instância: $EC2_IP"
-          echo "📋 Para acessar via SSH:"
+          echo "IP da instância: $EC2_IP"
+          echo "Para acessar via SSH:"
           echo "   ssh -i id_rsa ubuntu@$EC2_IP"
           echo ""
-          echo "📊 Para ver logs da aplicação:"
+          echo "Para ver logs da aplicação:"
           echo "   ssh -i id_rsa ubuntu@$EC2_IP 'cd /home/ubuntu/app && docker compose logs'"
           echo "========================================="
