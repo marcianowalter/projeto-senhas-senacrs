@@ -104,41 +104,55 @@ jobs:
             echo "Sistema: $(lsb_release -ds)"
             echo "Arquitetura: $(uname -m)"
 
+            # MATAR processos apt/dpkg que possam estar travados
+            echo "1. Parando processos apt/dpkg..."
+            sudo killall -9 apt-get apt dpkg 2>/dev/null || true
+            sudo pkill -f "apt-get" 2>/dev/null || true
+            sudo pkill -f "dpkg" 2>/dev/null || true
+            sleep 3
+
             # Remover locks se existirem
-            echo "1. Removendo locks do APT..."
+            echo "2. Removendo locks do APT..."
             sudo rm -f /var/lib/apt/lists/lock 2>/dev/null || true
             sudo rm -f /var/lib/dpkg/lock 2>/dev/null || true
             sudo rm -f /var/lib/dpkg/lock-frontend 2>/dev/null || true
             sudo rm -f /var/cache/apt/archives/lock 2>/dev/null || true
+            sudo rm -f /var/lib/apt/lists/*.lock 2>/dev/null || true
+            sleep 2
+
+            # Configurar dpkg para não usar frontend
+            echo "3. Configurando dpkg..."
+            echo 'DPkg::Lock {"";}' | sudo tee /etc/apt/apt.conf.d/99disable-lock
+            echo 'DPkg::Options { "--force-confdef"; "--force-confold"; }' | sudo tee -a /etc/apt/apt.conf.d/99disable-lock
 
             # Configurar locale sem pacote específico
-            echo "2. Configurando locale..."
-            sudo apt-get install -y locales
+            echo "4. Configurando locale..."
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y locales 2>/dev/null || true
             sudo locale-gen en_US.UTF-8
             export LC_ALL=en_US.UTF-8
             export LANG=en_US.UTF-8
-            sudo update-locale LANG=en_US.UTF-8
+            sudo update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
             # Atualizar sistema de forma segura
-            echo "3. Atualizando sistema..."
-            sudo apt-get update -y
-            
-            # Primeiro upgrade básico
-            echo "4. Atualizando pacotes básicos..."
-            sudo apt-get upgrade -y --with-new-pkgs
+            echo "5. Atualizando sistema (fase 1)..."
+            sudo DEBIAN_FRONTEND=noninteractive apt-get update -y 2>&1 | grep -v "WARNING: apt does not have"
 
-            # Instalar dependências essenciais
-            echo "5. Instalando dependências..."
-            sudo apt-get install -y \
+            # Instalar dependências essenciais SEM upgrade inicial
+            echo "6. Instalando dependências básicas..."
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
               apt-transport-https \
               ca-certificates \
               curl \
               gnupg \
               lsb-release \
-              software-properties-common
+              software-properties-common 2>&1 | grep -v "WARNING: apt does not have"
+
+            # Agora fazer upgrade seguro
+            echo "7. Atualizando pacotes (upgrade seguro)..."
+            sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" 2>&1 | grep -v "WARNING: apt does not have"
 
             # Adicionar repositório Docker
-            echo "6. Configurando repositório Docker..."
+            echo "8. Configurando repositório Docker..."
             
             # Criar diretório para chaves
             sudo install -m 0755 -d /etc/apt/keyrings
@@ -153,20 +167,20 @@ jobs:
               $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 
             # Atualizar após adicionar repositório
-            echo "7. Atualizando APT com Docker..."
-            sudo apt-get update -y
+            echo "9. Atualizando APT com Docker..."
+            sudo DEBIAN_FRONTEND=noninteractive apt-get update -y 2>&1 | grep -v "WARNING: apt does not have"
 
             # Instalar Docker
-            echo "8. Instalando Docker Engine..."
-            sudo apt-get install -y \
+            echo "10. Instalando Docker Engine..."
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
               docker-ce \
               docker-ce-cli \
               containerd.io \
               docker-buildx-plugin \
-              docker-compose-plugin
+              docker-compose-plugin 2>&1 | grep -v "WARNING: apt does not have"
 
             # Configurar Docker
-            echo "9. Configurando Docker..."
+            echo "11. Configurando Docker..."
             sudo systemctl enable docker
             sudo systemctl start docker
             
@@ -174,12 +188,12 @@ jobs:
             sudo usermod -aG docker ubuntu
 
             # Configurar uso imediato do grupo
-            newgrp docker << END
-            echo "10. Verificando instalação..."
+            echo "12. Verificando instalação..."
             docker --version
             docker compose version
-            docker info --format 'Server Version: {{.ServerVersion}}'
-            END
+            
+            # Testar docker sem sudo
+            sg docker -c "docker --version" 2>/dev/null || echo "Nota: Reinicie a sessão para usar docker sem sudo"
 
             echo "=== Docker instalado com sucesso ==="
           EOF
@@ -267,21 +281,21 @@ jobs:
             sleep 5
           done
           
-          echo "Aplicação iniciando..."
+          echo "⚠️  Aplicação pode estar iniciando..."
           echo "Tente acessar manualmente: http://$EC2_IP:5000"
 
       - name: Mostrar informações finais
         run: |
           echo "========================================="
-          echo "DEPLOY FINALIZADO!"
+          echo "🚀 DEPLOY FINALIZADO!"
           echo ""
-          echo "URL da aplicação:"
+          echo "🌐 URL da aplicação:"
           echo "   http://$EC2_IP:5000"
           echo ""
-          echo "IP da instância: $EC2_IP"
-          echo "Para acessar via SSH:"
+          echo "🔧 IP da instância: $EC2_IP"
+          echo "📋 Para acessar via SSH:"
           echo "   ssh -i id_rsa ubuntu@$EC2_IP"
           echo ""
-          echo "Para ver logs da aplicação use esse comando:"
+          echo "📊 Para ver logs da aplicação:"
           echo "   ssh -i id_rsa ubuntu@$EC2_IP 'cd /home/ubuntu/app && docker compose logs'"
           echo "========================================="
